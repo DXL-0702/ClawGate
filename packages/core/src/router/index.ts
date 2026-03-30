@@ -1,0 +1,74 @@
+import axios, { AxiosInstance } from 'axios';
+import type { RouteDecision } from '@clawgate/shared';
+
+interface RouterRouteResponse {
+  model: string;
+  provider: string;
+  layer: string;
+  cache_hit: boolean;
+  latency_ms: number;
+}
+
+interface RouterStatsResponse {
+  total: number;
+  cache_hits: number;
+  hit_rate: number;
+}
+
+export class RouterClient {
+  private http: AxiosInstance;
+
+  constructor(baseUrl = 'http://127.0.0.1:3001') {
+    this.http = axios.create({
+      baseURL: baseUrl,
+      timeout: 15000,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  async route(
+    prompt: string,
+    sessionKey?: string,
+  ): Promise<RouteDecision> {
+    try {
+      const { data } = await this.http.post<RouterRouteResponse>('/route', {
+        prompt,
+        session_key: sessionKey,
+      });
+      return {
+        model: data.model,
+        provider: data.provider,
+        layer: data.layer as RouteDecision['layer'],
+        cacheHit: data.cache_hit,
+        latencyMs: data.latency_ms,
+      };
+    } catch {
+      // Router 不可用时 fallback 到默认模型
+      return {
+        model: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+        layer: 'L1',
+        cacheHit: false,
+        latencyMs: 0,
+      };
+    }
+  }
+
+  async stats(): Promise<RouterStatsResponse | null> {
+    try {
+      const { data } = await this.http.get<RouterStatsResponse>('/stats');
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
+  async health(): Promise<boolean> {
+    try {
+      await this.http.get('/health');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}

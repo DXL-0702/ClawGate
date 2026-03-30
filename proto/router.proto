@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package clawgate.router;
+
+service RouterService {
+  rpc Route (RouteRequest) returns (RouteResponse);
+  rpc GetStats (StatsRequest) returns (StatsResponse);
+}
+
+message RouteRequest {
+  string prompt = 1;
+  string session_id = 2;
+}
+
+message RouteResponse {
+  string model = 1;
+  string provider = 2;
+  string layer = 3;
+  bool cache_hit = 4;
+  float latency_ms = 5;
+}
+
+message StatsRequest {}
+
+message StatsResponse {
+  int64 l1_hits = 1;
+  int64 l2_hits = 2;
+  int64 l3_hits = 3;
+  float l1_hit_rate = 4;
+  float l2_hit_rate = 5;
+  float avg_latency_ms = 6;
+}

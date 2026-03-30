@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package clawgate.intent;
+
+option go_package = "github.com/clawgate/proto/intent";
+
+service IntentService {
+  rpc Classify (ClassifyRequest) returns (ClassifyResponse);
+  rpc SubmitFeedback (FeedbackRequest) returns (FeedbackResponse);
+}
+
+message ClassifyRequest {
+  string prompt = 1;
+  string session_id = 2;
+}
+
+message ClassifyResponse {
+  string complexity = 1;  // "simple" | "complex"
+  string model = 2;
+  string layer = 3;       // "L1" | "L2" | "L3"
+  float confidence = 4;
+  float latency_ms = 5;
+}
+
+message FeedbackRequest {
+  string prompt = 1;
+  string selected_model = 2;
+  string signal_type = 3;  // "model_switch" | "regenerate"
+  string session_id = 4;
+}
+
+message FeedbackResponse {
+  bool accepted = 1;
+  string reason = 2;
+}

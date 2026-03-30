@@ -1,0 +1,42 @@
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Turbo
+.turbo/
+
+# Vite
+packages/web/dist/
+
+# Rust
+services/router-rust/target/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# pnpm
+.pnpm-debug.log
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# Claude
+CLAUDE.md
