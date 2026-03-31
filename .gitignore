@@ -40,3 +40,7 @@ Thumbs.db
 
 # Claude
 CLAUDE.md
+settings.json
+
+# issues
+docs/issues-draft.md

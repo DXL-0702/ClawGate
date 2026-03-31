@@ -1,28 +1,35 @@
-use redis::{Client, AsyncCommands};
+use redis::{Client, AsyncCommands, aio::MultiplexedConnection};
+use tokio::sync::Mutex;
 
 pub struct L1Cache {
-    client: Client,
+    conn: Mutex<MultiplexedConnection>,
     ttl: u64,
 }
 
 impl L1Cache {
     pub async fn new(redis_url: &str, ttl: u64) -> anyhow::Result<Self> {
         let client = Client::open(redis_url)?;
-        let mut conn = client.get_multiplexed_async_connection().await?;
-        redis::cmd("PING").query_async::<String>(&mut conn).await?;
-        Ok(Self { client, ttl })
+        let conn = client.get_multiplexed_async_connection().await?;
+        // 验证连接可用
+        let mut c = conn.clone();
+        redis::cmd("PING").query_async::<String>(&mut c).await?;
+        Ok(Self { conn: Mutex::new(conn), ttl })
+    }
+
+    async fn get_conn(&self) -> anyhow::Result<tokio::sync::MutexGuard<'_, MultiplexedConnection>> {
+        Ok(self.conn.lock().await)
     }
 
     pub async fn get(&self, prompt: &str) -> anyhow::Result<Option<String>> {
         let key = format!("clawgate:l1:{}", hash_key(&normalise(prompt)));
-        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        let mut conn = self.get_conn().await?;
         let val: Option<String> = conn.get(&key).await?;
         Ok(val)
     }
 
     pub async fn set(&self, prompt: &str, model: &str) -> anyhow::Result<()> {
         let key = format!("clawgate:l1:{}", hash_key(&normalise(prompt)));
-        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        let mut conn = self.get_conn().await?;
         conn.set_ex::<_, _, ()>(&key, model, self.ttl).await?;
         Ok(())
     }

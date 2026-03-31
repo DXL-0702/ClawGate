@@ -17,13 +17,21 @@ interface RouterStatsResponse {
 
 export class RouterClient {
   private http: AxiosInstance;
+  private readonly fallbackModel: string;
+  private readonly fallbackProvider: string;
 
-  constructor(baseUrl = 'http://127.0.0.1:3001') {
+  constructor(
+    baseUrl = 'http://127.0.0.1:3001',
+    fallbackModel = 'claude-sonnet-4-6',
+    fallbackProvider = 'anthropic',
+  ) {
     this.http = axios.create({
       baseURL: baseUrl,
       timeout: 15000,
       headers: { 'Content-Type': 'application/json' },
     });
+    this.fallbackModel = fallbackModel;
+    this.fallbackProvider = fallbackProvider;
   }
 
   async route(
@@ -45,8 +53,8 @@ export class RouterClient {
     } catch {
       // Router 不可用时 fallback 到默认模型
       return {
-        model: 'claude-sonnet-4-6',
-        provider: 'anthropic',
+        model: this.fallbackModel,
+        provider: this.fallbackProvider,
         layer: 'L1',
         cacheHit: false,
         latencyMs: 0,

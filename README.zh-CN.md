@@ -1,77 +1,133 @@
-# ClawGate
+<p align="center">
+  <img src="./docs/assets/logo.png" alt="ClawGate" width="120" />
+</p>
 
-[English Documentation](./README.md)
+<h1 align="center">ClawGate</h1>
 
-> **OpenClaw 智能资源调度平台**
+<p align="center">
+  <strong>OpenClaw 智能资源调度平台</strong><br/>
+  多模型路由 · Agent 管理 · 工作流编排
+</p>
 
-ClawGate 是为 [OpenClaw](https://github.com/openclaw) 设计的综合资源调度平台，提供智能路由、多 Agent 管理和工作流编排能力。
+<p align="center">
+  <a href="./README.md">English</a> ·
+  <a href="./architecture.md">架构文档</a> ·
+  <a href="./docs/progress/DONE.md">已完成功能</a> ·
+  <a href="./docs/progress/NEXT.md">下一步计划</a>
+</p>
 
----
-
-## 🌟 核心功能
-
-### 1. 多 Agent 管理
-- 多个 OpenClaw Agent 实例实时监控
-- Session 可视化控制台，支持实时事件流
-- Token 用量追踪与成本估算
-
-### 2. 智能路由引擎（四层架构）
-- **L1**：Hash 精确匹配缓存（Rust，<1ms）
-- **L2**：语义向量检索（Python + Qdrant，10-30ms）
-- **L3**：哨兵模型分类（Ollama，200-500ms）
-- **L4**：反馈闭环持续优化
-
-### 3. 工作流编排（v0.5 即将推出）
-- 基于 DAG 的任务调度
-- 支持 cron、事件、Webhook 触发
-- 可视化工作流编辑器
+<p align="center">
+  <img src="https://img.shields.io/badge/版本-v0.3-blue" />
+  <img src="https://img.shields.io/badge/许可证-MIT-green" />
+  <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" />
+  <img src="https://img.shields.io/badge/rust-1.70%2B-orange" />
+  <img src="https://img.shields.io/badge/python-3.11%2B-yellow" />
+</p>
 
 ---
 
-## 🚀 快速开始
+## ClawGate 是什么？
+
+ClawGate 是 [OpenClaw](https://github.com/openclaw)（本地 AI Agent 运行时）的**基础设施增强层**。将 API Base URL 指向 ClawGate，即可立即获得：
+
+- 🧠 **智能路由** — 四层引擎（Hash 缓存 → 向量检索 → 哨兵模型 → 反馈闭环）自动为每个请求调度最优模型
+- 📊 **Agent 管理** — 跨所有 OpenClaw 实例的实时监控、Session 控制与 Token 成本追踪
+- 🔁 **工作流编排** — 基于 DAG 的任务调度，支持 cron、事件、Webhook 触发 *(v0.5 即将推出)*
+
+> 零迁移成本。任何支持自定义 API Base URL 的工具（Cursor、LobeChat、OpenWebUI）均可直接接入。
+
+---
+
+## ⚡ 快速开始
 
 ### 前置要求
 
-- Node.js 18+
-- Rust 1.70+
-- Python 3.11+
-- Docker & Docker Compose
-- OpenClaw 已安装于 `~/.openclaw/`
+| 依赖 | 版本 |
+|------|------|
+| Node.js | ≥ 18 |
+| Rust | ≥ 1.70 |
+| Python | ≥ 3.11 |
+| Docker & Compose | 最新版 |
+| OpenClaw | 已安装于 `~/.openclaw/` |
 
-### 安装
+### 安装与启动
 
 ```bash
-# 克隆仓库
-git clone https://github.com/yourusername/ClawGate.git
+git clone https://github.com/DXL_0702/ClawGate.git
 cd ClawGate
 
-# 安装 Node.js 依赖
-pnpm install
+pnpm install        # 安装 Node.js 依赖
+pnpm build          # 构建所有包
 
-# 构建所有包
-pnpm build
+docker compose up -d   # 启动 Redis、Qdrant、Ollama
 
-# 启动基础设施服务
-docker compose up -d
-
-# 启动开发服务器
-pnpm dev
+pnpm dev            # 启动所有服务
 ```
 
-### 首次运行
+### 首次使用
 
 ```bash
-# 初始化配置
-pnpm cli init
-
-# 检查状态
-pnpm cli status
-
-# 列出已发现的 Agent
-pnpm cli agents list
+pnpm cli init          # 从 ~/.openclaw 自动生成 clawgate.yaml
+pnpm cli status        # 查看路由命中率、成本汇总、Agent 健康状态
+pnpm cli agents list   # 发现所有 OpenClaw Agent 实例
 ```
 
-访问 Web UI：http://localhost:5173
+将任意 OpenAI 兼容客户端的 Base URL 指向 `http://localhost:3000/v1`，路由自动生效。
+
+---
+
+## 🧠 路由引擎
+
+ClawGate 的核心是**四层路由流水线**，为每个请求选择最优模型：
+
+```
+用户输入
+    │
+    ▼  ─────────────────────────────────────────
+    │  L1  Hash 缓存          Rust    < 1ms    │  ~30% 请求
+    │  ─────────────────────────────────────────│
+    │  L2  向量语义检索        Python  10-30ms  │  ~55% 请求
+    │  ─────────────────────────────────────────│
+    │  L3  哨兵模型分类        Ollama  200-500ms│  ~15% 请求
+    │  ─────────────────────────────────────────│
+    │  L4  反馈闭环            异步    0ms      │  100%（后台）
+    └──────────────────────────────────────────
+```
+
+| 层级 | 技术 | 延迟 | 职责 |
+|------|------|------|------|
+| L1 | Rust + Redis | < 1ms | SHA-256 精确匹配缓存 |
+| L2 | Python + Qdrant | 10–30ms | Embedding 相似度，Top-3 投票 |
+| L3 | Ollama qwen2.5:3b | 200–500ms | Few-Shot 哨兵分类 |
+| L4 | 异步写入 | 非阻塞 | 反馈 → 向量库持续进化 |
+
+---
+
+## 📡 API
+
+ClawGate 暴露完整的 **OpenAI 兼容**端点：
+
+```
+POST http://localhost:3000/v1/chat/completions
+```
+
+Provider 根据路由决策自动分发：
+
+| 模型前缀 | Provider |
+|---------|----------|
+| `claude-*` | Anthropic |
+| `gpt-*` | OpenAI |
+| 其他 | Ollama（本地） |
+
+扩展端点：
+
+```
+GET  /api/health
+GET  /api/agents
+GET  /api/sessions/:id
+GET  /api/route/stats          # L1–L4 各层命中率与延迟
+POST /api/route/feedback       # 提交 L4 反馈信号
+```
 
 ---
 
@@ -80,75 +136,59 @@ pnpm cli agents list
 ```
 ClawGate/
 ├── packages/
-│   ├── shared/      # 共享 TypeScript 类型
-│   ├── core/        # 核心业务逻辑
-│   ├── server/      # Fastify API 服务器
-│   ├── web/         # React Web UI
-│   └── cli/         # 命令行工具
+│   ├── shared/          # 共享 TypeScript 类型
+│   ├── core/            # 配置、Gateway 客户端、路由客户端、数据库
+│   ├── server/          # Fastify API 服务（REST + WebSocket）
+│   ├── web/             # React 18 + shadcn/ui 控制台
+│   └── cli/             # Commander.js CLI
 ├── services/
-│   ├── router-rust/       # Rust 路由层（L1 缓存）
-│   └── intent-python/     # Python 意图服务（L2/L3/L4）
-└── docker-compose.yml     # 基础设施服务
+│   ├── router-rust/     # L1 Hash 缓存 + 规则引擎（Axum/Tokio）
+│   └── intent-python/   # L2/L3/L4 意图服务（FastAPI + Qdrant）
+├── proto/               # gRPC Protobuf 定义
+├── docker-compose.yml
+└── architecture.md      # 详细系统架构设计
 ```
-
----
-
-## 🛠️ 开发
-
-### 运行测试
-
-```bash
-# Node.js 测试
-pnpm test
-
-# Rust 测试
-cd services/router-rust && cargo test
-
-# Python 测试
-cd services/intent-python && pytest
-```
-
-### 生产构建
-
-```bash
-pnpm build
-```
-
----
-
-## 📊 架构
-
-详细的系统架构和设计决策请参阅 [architecture.md](./architecture.md)。
 
 ---
 
 ## 🗺️ 开发路线图
 
-- [x] **MVP**：核心基础设施与 OpenClaw 集成
-- [x] **v0.1**：Agent 管理与 Session 追踪
-- [x] **v0.3**：智能路由引擎（L1-L4）
-- [ ] **v0.5**：DAG 工作流编排
-- [ ] **v1.0**：生产就绪，支持 SDK
+| 里程碑 | 状态 | 核心内容 |
+|--------|------|----------|
+| MVP | ✅ | Monorepo、OpenClaw 集成、Web UI 骨架 |
+| v0.1 | ✅ | Agent 管理、Session 追踪、CLI、SQLite |
+| v0.3 | ✅ | 四层路由引擎、OpenAI 兼容 API |
+| v0.5 | 🔜 | DAG 工作流编排、可视化编辑器 |
+| v1.0 | 🔜 | 多实例运维、SDK（Node.js + Python）、生产加固 |
+
+---
+
+## 🛠️ 开发
+
+```bash
+pnpm test                              # vitest（Node.js 包）
+cd services/router-rust && cargo test  # Rust 单元测试
+cd services/intent-python && pytest    # Python 单元测试
+
+pnpm build                             # 全量 Monorepo 构建
+```
+
+---
+
+## 🤝 参与贡献
+
+欢迎贡献。开始前请：
+
+1. 查看[已完成功能](./docs/progress/DONE.md)了解当前状态
+2. 查看[下一步计划](./docs/progress/NEXT.md)了解待开发内容与技术思路
+3. 提 Issue 讨论你的改动方案，再提交 PR
 
 ---
 
 ## 📄 许可证
 
-MIT License - 详见 [LICENSE](./LICENSE)
+MIT — 详见 [LICENSE](./LICENSE)
 
 ---
 
-## 🤝 贡献
-
-欢迎贡献！请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md) 了解贡献指南。
-
----
-
-## 📮 联系方式
-
-- 问题反馈：[GitHub Issues](https://github.com/yourusername/ClawGate/issues)
-- 讨论交流：[GitHub Discussions](https://github.com/yourusername/ClawGate/discussions)
-
----
-
-**用 ❤️ 为 OpenClaw 社区构建**
+<p align="center">为 OpenClaw 社区而构建</p>

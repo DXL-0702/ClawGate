@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
         simple_model=SIMPLE_MODEL,
         complex_model=COMPLEX_MODEL,
     )
-    l4 = L4FeedbackLoop()
+    l4 = L4FeedbackLoop(simple_model=SIMPLE_MODEL, complex_model=COMPLEX_MODEL)
     # 尝试初始化 Qdrant collection（Qdrant 不可用时不崩溃）
     try:
         await l2.ensure_collection()

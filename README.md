@@ -1,77 +1,133 @@
-# ClawGate
+<p align="center">
+  <img src="./docs/assets/logo.png" alt="ClawGate" width="120" />
+</p>
 
-[中文文档](./README.zh-CN.md)
+<h1 align="center">ClawGate</h1>
 
-> **Intelligent Resource Scheduling Platform for OpenClaw**
+<p align="center">
+  <strong>Intelligent Resource Scheduling Platform for OpenClaw</strong><br/>
+  Multi-model routing · Agent management · Workflow orchestration
+</p>
 
-ClawGate is a comprehensive resource scheduling platform designed for [OpenClaw](https://github.com/openclaw), providing intelligent routing, multi-agent management, and workflow orchestration capabilities.
+<p align="center">
+  <a href="./README.zh-CN.md">中文文档</a> ·
+  <a href="./architecture.md">Architecture</a> ·
+  <a href="./docs/progress/DONE.md">What's Built</a> ·
+  <a href="./docs/progress/NEXT.md">What's Next</a>
+</p>
 
----
-
-## 🌟 Core Features
-
-### 1. Multi-Agent Management
-- Real-time monitoring of multiple OpenClaw Agent instances
-- Session visualization console with live event streaming
-- Token usage tracking and cost estimation
-
-### 2. Intelligent Routing Engine (4-Layer Architecture)
-- **L1**: Hash-based exact match cache (Rust, <1ms)
-- **L2**: Semantic vector search (Python + Qdrant, 10-30ms)
-- **L3**: Sentinel model classification (Ollama, 200-500ms)
-- **L4**: Feedback loop for continuous optimization
-
-### 3. Workflow Orchestration (Coming in v0.5)
-- DAG-based task scheduling
-- Support for cron, event, and webhook triggers
-- Visual workflow editor
+<p align="center">
+  <img src="https://img.shields.io/badge/version-v0.3-blue" />
+  <img src="https://img.shields.io/badge/license-MIT-green" />
+  <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" />
+  <img src="https://img.shields.io/badge/rust-1.70%2B-orange" />
+  <img src="https://img.shields.io/badge/python-3.11%2B-yellow" />
+</p>
 
 ---
 
-## 🚀 Quick Start
+## What is ClawGate?
+
+ClawGate is an **infrastructure enhancement layer** for [OpenClaw](https://github.com/openclaw) — the local AI Agent runtime. Point your API base URL at ClawGate and instantly gain:
+
+- 🧠 **Intelligent routing** — 4-layer engine (hash cache → vector search → sentinel model → feedback loop) automatically dispatches each request to the optimal model
+- 📊 **Agent management** — real-time monitoring, session control, and token cost tracking across all OpenClaw instances
+- 🔁 **Workflow orchestration** — DAG-based task scheduling with cron, event, and webhook triggers *(coming in v0.5)*
+
+> Zero migration required. Any tool that supports a custom API base URL (Cursor, LobeChat, OpenWebUI) works out of the box.
+
+---
+
+## ⚡ Quick Start
 
 ### Prerequisites
 
-- Node.js 18+
-- Rust 1.70+
-- Python 3.11+
-- Docker & Docker Compose
-- OpenClaw installed at `~/.openclaw/`
+| Requirement | Version |
+|-------------|---------|
+| Node.js | ≥ 18 |
+| Rust | ≥ 1.70 |
+| Python | ≥ 3.11 |
+| Docker & Compose | latest |
+| OpenClaw | installed at `~/.openclaw/` |
 
-### Installation
+### Install & Run
 
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/ClawGate.git
+git clone https://github.com/DXL_0702/ClawGate.git
 cd ClawGate
 
-# Install Node.js dependencies
-pnpm install
+pnpm install        # install Node.js dependencies
+pnpm build          # build all packages
 
-# Build all packages
-pnpm build
+docker compose up -d   # start Redis, Qdrant, Ollama
 
-# Start infrastructure services
-docker compose up -d
-
-# Start development servers
-pnpm dev
+pnpm dev            # start all services
 ```
 
-### First Run
+### First Steps
 
 ```bash
-# Initialize configuration
-pnpm cli init
-
-# Check status
-pnpm cli status
-
-# List discovered agents
-pnpm cli agents list
+pnpm cli init          # auto-generate clawgate.yaml from ~/.openclaw
+pnpm cli status        # routing hit rates, cost summary, agent health
+pnpm cli agents list   # discover all OpenClaw Agent instances
 ```
 
-Access the Web UI at: http://localhost:5173
+Then point any OpenAI-compatible client at `http://localhost:3000/v1` — routing happens automatically.
+
+---
+
+## 🧠 Routing Engine
+
+The core of ClawGate is a **4-layer routing pipeline** that selects the optimal model for each request:
+
+```
+User Prompt
+    │
+    ▼  ─────────────────────────────────────────
+    │  L1  Hash Cache          Rust    < 1ms    │  ~30% of queries
+    │  ─────────────────────────────────────────│
+    │  L2  Vector Search       Python  10-30ms  │  ~55% of queries
+    │  ─────────────────────────────────────────│
+    │  L3  Sentinel Model      Ollama  200-500ms│  ~15% of queries
+    │  ─────────────────────────────────────────│
+    │  L4  Feedback Loop       Async   0ms      │  100% (background)
+    └──────────────────────────────────────────
+```
+
+| Layer | Tech | Latency | Role |
+|-------|------|---------|------|
+| L1 | Rust + Redis | < 1ms | SHA-256 exact match cache |
+| L2 | Python + Qdrant | 10–30ms | Embedding similarity, Top-3 vote |
+| L3 | Ollama qwen2.5:3b | 200–500ms | Few-shot sentinel classification |
+| L4 | Async write | non-blocking | Feedback → vector DB evolution |
+
+---
+
+## 📡 API
+
+ClawGate exposes a fully **OpenAI-compatible** endpoint:
+
+```
+POST http://localhost:3000/v1/chat/completions
+```
+
+Provider dispatch is automatic based on the routing decision:
+
+| Model prefix | Provider |
+|---|---|
+| `claude-*` | Anthropic |
+| `gpt-*` | OpenAI |
+| anything else | Ollama (local) |
+
+Additional endpoints:
+
+```
+GET  /api/health
+GET  /api/agents
+GET  /api/sessions/:id
+GET  /api/route/stats          # L1–L4 hit rates and latency
+POST /api/route/feedback       # submit L4 feedback signal
+```
 
 ---
 
@@ -80,75 +136,59 @@ Access the Web UI at: http://localhost:5173
 ```
 ClawGate/
 ├── packages/
-│   ├── shared/      # Shared TypeScript types
-│   ├── core/        # Core business logic
-│   ├── server/      # Fastify API server
-│   ├── web/         # React Web UI
-│   └── cli/         # Command-line interface
+│   ├── shared/          # shared TypeScript types
+│   ├── core/            # config, gateway client, router client, DB
+│   ├── server/          # Fastify API server (REST + WebSocket)
+│   ├── web/             # React 18 + shadcn/ui dashboard
+│   └── cli/             # Commander.js CLI
 ├── services/
-│   ├── router-rust/       # Rust routing layer (L1 cache)
-│   └── intent-python/     # Python intent service (L2/L3/L4)
-└── docker-compose.yml     # Infrastructure services
+│   ├── router-rust/     # L1 hash cache + rule engine (Axum/Tokio)
+│   └── intent-python/   # L2/L3/L4 intent service (FastAPI + Qdrant)
+├── proto/               # gRPC Protobuf definitions
+├── docker-compose.yml
+└── architecture.md      # detailed system design
 ```
-
----
-
-## 🛠️ Development
-
-### Run Tests
-
-```bash
-# Node.js tests
-pnpm test
-
-# Rust tests
-cd services/router-rust && cargo test
-
-# Python tests
-cd services/intent-python && pytest
-```
-
-### Build for Production
-
-```bash
-pnpm build
-```
-
----
-
-## 📊 Architecture
-
-See [architecture.md](./architecture.md) for detailed system architecture and design decisions.
 
 ---
 
 ## 🗺️ Roadmap
 
-- [x] **MVP**: Core infrastructure and OpenClaw integration
-- [x] **v0.1**: Agent management and session tracking
-- [x] **v0.3**: Intelligent routing engine (L1-L4)
-- [ ] **v0.5**: DAG workflow orchestration
-- [ ] **v1.0**: Production-ready with SDK support
+| Milestone | Status | Highlights |
+|-----------|--------|------------|
+| MVP | ✅ | Monorepo, OpenClaw integration, Web UI skeleton |
+| v0.1 | ✅ | Agent management, session tracking, CLI, SQLite |
+| v0.3 | ✅ | 4-layer routing engine, OpenAI-compatible API |
+| v0.5 | 🔜 | DAG workflow orchestration, visual editor |
+| v1.0 | 🔜 | Multi-instance ops, SDK (Node.js + Python), production hardening |
 
 ---
 
-## 📄 License
+## 🛠️ Development
 
-MIT License - see [LICENSE](./LICENSE) for details
+```bash
+pnpm test                              # vitest (Node.js packages)
+cd services/router-rust && cargo test  # Rust unit tests
+cd services/intent-python && pytest    # Python unit tests
+
+pnpm build                             # full monorepo build
+```
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+Contributions are welcome. Before starting:
+
+1. Check [What's Built](./docs/progress/DONE.md) to understand the current state
+2. Check [What's Next](./docs/progress/NEXT.md) for planned work and technical approach
+3. Open an issue to discuss your proposed change before submitting a PR
 
 ---
 
-## 📮 Contact
+## 📄 License
 
-- Issues: [GitHub Issues](https://github.com/yourusername/ClawGate/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/ClawGate/discussions)
+MIT — see [LICENSE](./LICENSE)
 
 ---
 
-**Built with ❤️ for the OpenClaw community**
+<p align="center">Built for the OpenClaw community</p>

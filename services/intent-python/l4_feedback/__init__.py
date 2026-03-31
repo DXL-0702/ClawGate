@@ -9,6 +9,9 @@ if TYPE_CHECKING:
 
 NEGATIVE_THRESHOLD = 3  # 连续 3 次负反馈触发降级
 
+DEFAULT_SIMPLE_MODEL  = "qwen2.5:7b"
+DEFAULT_COMPLEX_MODEL = "claude-sonnet-4-6"
+
 
 @dataclass
 class FeedbackRecord:
@@ -20,7 +23,13 @@ class FeedbackRecord:
 
 
 class L4FeedbackLoop:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        simple_model: str = DEFAULT_SIMPLE_MODEL,
+        complex_model: str = DEFAULT_COMPLEX_MODEL,
+    ) -> None:
+        self._simple_model = simple_model
+        self._complex_model = complex_model
         # model -> consecutive negative count
         self._neg_counts: dict[str, int] = defaultdict(int)
         # model -> total feedback count
@@ -55,10 +64,10 @@ class L4FeedbackLoop:
         """当前模型连续负反馈超过阈值，建议切换方向."""
         if complexity == "simple":
             # simple 任务反复不满意 → 升级到更强模型
-            return "claude-sonnet-4-6"
+            return self._complex_model
         else:
             # complex 任务反复不满意 → 可能过度复杂，尝试降级
-            return "qwen2.5:7b"
+            return self._simple_model
 
     def satisfaction_rate(self, model: str) -> float:
         total = self._total.get(model, 0)

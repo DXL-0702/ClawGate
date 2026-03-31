@@ -183,7 +183,49 @@ feedback_signals    User feedback records
 
 ---
 
-## 6. OpenClaw Integration
+## 6. OpenAI-Compatible API Layer
+
+ClawGate exposes a fully OpenAI-compatible endpoint at `POST /v1/chat/completions`, enabling zero-config integration with tools like Cursor, LobeChat, and OpenWebUI.
+
+### 6.1 Request Flow
+
+```
+POST /v1/chat/completions
+    │
+    ▼
+lastUserMessage(messages)     ← extract routing signal
+    │
+    ▼
+RouterClient.route(prompt)    ← L1 → L2 → L3 decision
+    │
+    ▼
+dispatchProvider(model)
+    ├── claude-*  → Anthropic SDK (singleton client)
+    ├── gpt-*     → OpenAI SDK (singleton client)
+    └── other     → Ollama HTTP API
+    │
+    ▼
+OpenAI-format response        ← id / object / model / choices / usage
+    │
+    ▼ (async, non-blocking)
+pushRoutingLog()              ← Redis routing_logs_buf
+```
+
+### 6.2 Error Handling
+
+| Scenario | HTTP | Trigger |
+|----------|------|---------|
+| No user message in `messages` | 400 | `lastUserMessage()` returns `""` |
+| API key not configured | 400 | `ConfigError` thrown in Provider |
+| Provider call failed | 502 | Network / model error |
+
+### 6.3 Known Limitation
+
+`pushRoutingLog()` depends on `getRedis()`, but `connectRedis()` is not yet called independently in `server/index.ts`. Routing log writes silently fail (non-fatal `catch`). **Scheduled fix: v0.5 Redis initialization refactor.**
+
+---
+
+## 7. OpenClaw Integration
 
 ClawGate integrates with OpenClaw via two channels:
 
@@ -343,5 +385,5 @@ ws://127.0.0.1:18789
 
 ---
 
-**Last Updated**: 2026-03-30
-**Version**: v0.3 (Intelligent Routing Core)
+**Last Updated**: 2026-03-31
+**Version**: v0.3 (Intelligent Routing Core + OpenAI-Compatible API)

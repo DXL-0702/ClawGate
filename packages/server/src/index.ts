@@ -1,12 +1,13 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
-import { configReader, GatewayClient, initDb } from '@clawgate/core';
+import { configReader, GatewayClient, initDb, loadYamlConfig } from '@clawgate/core';
 import { agentRoutes } from './routes/agents.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { healthRoutes } from './routes/health.js';
 import { eventsRoutes, broadcastEvent } from './routes/events.js';
 import { routeRoutes } from './routes/route.js';
+import { openaiRoutes } from './routes/openai.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -21,6 +22,7 @@ await app.register(websocket);
 
 await configReader.load();
 configReader.watch().catch(() => {});
+await loadYamlConfig();
 
 // 初始化 SQLite
 initDb();
@@ -49,6 +51,7 @@ await app.register(agentRoutes, { prefix: '/api' });
 await app.register(sessionRoutes, { prefix: '/api' });
 await app.register(eventsRoutes, { prefix: '/ws' });
 await app.register(routeRoutes, { prefix: '/api' });
+await app.register(openaiRoutes, { prefix: '/v1' });
 
 try {
   await app.listen({ port: 3000, host: '0.0.0.0' });

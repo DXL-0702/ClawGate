@@ -12,12 +12,14 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
     "@clawgate/core": "workspace:*",
     "@clawgate/shared": "workspace:*",
     "@fastify/cors": "^10.0.2",
     "@fastify/websocket": "^11.0.2",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.3.2",
+    "openai": "^6.33.0",
     "zod": "^3.24.3"
   },
   "devDependencies": {
