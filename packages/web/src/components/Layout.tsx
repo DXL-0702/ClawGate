@@ -10,6 +10,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <NavLink to="/agents" className={navCls}>Agents</NavLink>
         <NavLink to="/sessions" className={navCls}>Sessions</NavLink>
         <NavLink to="/router" className={navCls}>Router</NavLink>
+        <NavLink to="/dags" className={navCls}>DAG 工作流</NavLink>
       </aside>
       <main className="flex-1 overflow-auto p-6">{children}</main>
     </div>

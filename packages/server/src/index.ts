@@ -11,6 +11,7 @@ import { healthRoutes } from './routes/health.js';
 import { eventsRoutes, broadcastEvent } from './routes/events.js';
 import { routeRoutes } from './routes/route.js';
 import { openaiRoutes } from './routes/openai.js';
+import { dagRoutes } from './routes/dags.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -58,6 +59,7 @@ await app.register(sessionRoutes, { prefix: '/api' });
 await app.register(eventsRoutes, { prefix: '/ws' });
 await app.register(routeRoutes, { prefix: '/api' });
 await app.register(openaiRoutes, { prefix: '/v1' });
+await app.register(dagRoutes, { prefix: '/api' });
 
 try {
   await app.listen({ port: 3000, host: '0.0.0.0' });

@@ -42,3 +42,25 @@ export const routingLogs = sqliteTable('routing_logs', {
   latencyMs: real('latency_ms').notNull().default(0),
   createdAt: text('created_at').notNull(),
 });
+
+// v0.5 DAG 工作流表
+export const dags = sqliteTable('dags', {
+  id: text('id').primaryKey(),              // uuid
+  name: text('name').notNull(),
+  definition: text('definition').notNull(), // JSON: { nodes: [], edges: [] }
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const dagRuns = sqliteTable('dag_runs', {
+  id: text('id').primaryKey(),              // uuid
+  dagId: text('dag_id').notNull().references(() => dags.id),
+  status: text('status', { enum: ['pending', 'running', 'completed', 'failed'] })
+    .notNull()
+    .default('pending'),
+  output: text('output'),                   // 执行结果 JSON
+  error: text('error'),                     // 错误信息
+  startedAt: text('started_at'),
+  endedAt: text('ended_at'),
+  createdAt: text('created_at').notNull(),
+});
