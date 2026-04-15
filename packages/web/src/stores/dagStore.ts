@@ -46,7 +46,16 @@ interface DagStore {
   resetRun: () => void;
 
   // 加载/保存
-  loadFromDefinition: (definition: { nodes: Node<NodeData>[]; edges?: Edge[] }) => void;
+  loadFromDefinition: (definition: {
+    nodes: Array<{
+      id: string;
+      type: 'agent';
+      agentId: string;
+      prompt: string;
+      position?: { x: number; y: number };
+    }>;
+    edges?: Array<{ id: string; source: string; target: string }>;
+  }) => void;
   toDefinition: () => { nodes: Node<NodeData>[]; edges: Edge[] };
   reset: () => void;
 }
@@ -157,15 +166,34 @@ export const useDagStore = create<DagStore>((set, get) => ({
   },
 
   loadFromDefinition: (definition) => {
+    // 转换 API 节点为 ReactFlow 节点
+    const nodes: Node<NodeData>[] = definition.nodes.map((n, index) => ({
+      id: n.id,
+      type: n.type,
+      position: n.position ?? { x: 300 + index * 250, y: 200 },
+      data: {
+        type: 'agent',
+        agentId: n.agentId,
+        prompt: n.prompt,
+      },
+    }));
+
+    const edges: Edge[] = (definition.edges ?? []).map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+    }));
+
     set({
-      nodes: definition.nodes,
-      edges: definition.edges || [],
+      nodes,
+      edges,
       selectedNodeId: null,
     });
-    // 更新计数器
+
+    // 更新计数器，避免新节点 ID 冲突
     const maxId = definition.nodes.reduce((max, node) => {
       const num = parseInt(node.id.replace('node-', ''));
-      return Math.max(max, num);
+      return Math.max(max, isNaN(num) ? 0 : num);
     }, 0);
     nodeIdCounter = maxId;
   },

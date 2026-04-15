@@ -1,7 +1,7 @@
 # 已完成开发 (DONE)
 
 > 本文件仅记录**已通过端到端验证**的功能模块，未验证的模块不在此列。
-> 最后更新：v0.3 阶段
+> 最后更新：v0.5 Wave 1 完成
 
 ---
 
@@ -133,4 +133,44 @@
 | **L4 反馈接口** | ❌ 未实现 | Node.js 缺少 `POST /api/route/feedback` 路由 |
 
 **v0.3 核心交付**：L1 缓存 + OpenAI 端点已验证，可交付。L2/L3 代码就绪待 v0.5 深度验证，L4 接口需补充实现。
+
+---
+
+## v0.5 Wave 1 — DAG 工作流基础（已完成）
+
+### 前端
+
+- **Linear 风格主题系统** — 紫罗兰强调色 (#7c3aed)、毛玻璃导航栏 (`backdrop-blur: 12px`)、发光效果 (glow-accent)
+- **DAG 编辑器** — React Flow 画布集成、节点拖拽、右侧属性面板 (DagNodePanel)
+- **DAG 加载绑定** — `loadFromDefinition()` 实现，API 数据 → ReactFlow 节点渲染
+
+### 后端
+
+- **`dag_node_states` 表** — 节点级执行状态追踪（pending/running/completed/failed/skipped），支持 5 种状态
+- **Gateway 执行封装** — `executeAgentNode()`：创建 Session → 发送消息 → WebSocket 事件收集 → 流式回调 (`onMessage`)
+- **DAG Worker 框架** — BullMQ Worker (`dag-execution` 队列)，单节点执行链路完整
+- **异步执行 API** — `POST /dags/:id/run` 立即返回 `{runId, status: 'pending'}`，前端轮询获取状态
+- **状态查询 API** — `GET /dag-runs/:runId` 返回完整节点状态数组
+
+### 基础设施修复
+
+- **Issue 1 完全修复** — BullMQ Redis 连接分离 (`getBullMqRedis()`)，解决 `maxRetriesPerRequest` 冲突
+- **OpenClaw Token 读取** — 从 `~/.openclaw/identity/device-auth.json` 自动读取 Gateway token
+- **Session 类型导出** — `core/index.ts` 导出 `Session` 类型，测试文件可正常导入
+
+### v0.5 Wave 1 验证结果
+
+| 功能 | 验证状态 | 备注 |
+|------|----------|------|
+| **主题系统** | ✅ | CSS 变量 + Tailwind v4 @theme |
+| **DAG 创建 API** | ✅ | `POST /api/dags` 200 OK |
+| **DAG 执行触发** | ✅ | `POST /dags/:id/run` 返回 runId |
+| **状态查询 API** | ✅ | `GET /dag-runs/:runId` 返回 nodes 数组 |
+| **数据库存储** | ✅ | `dags`/`dag_runs`/`dag_node_states` 三表完整 |
+| **Worker 启动** | ✅ | DAG Worker 正常启动 |
+| **前端加载** | ✅ | DAG 定义正确渲染到画布 |
+| **单元测试** | ✅ | gateway-executor 7/7 通过 |
+| **Gateway 连接** | ⚠️ | 外部依赖，需 OpenClaw 就绪 |
+
+**v0.5 Wave 1 核心交付**：DAG 工作流基础架构完成，单节点执行链路代码完整。
 

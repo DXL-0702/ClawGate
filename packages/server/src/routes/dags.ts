@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { getDb, schema } from '@clawgate/core';
+import { getDb, schema, getDagQueue } from '@clawgate/core';
 import { eq } from 'drizzle-orm';
 
 // Week 1: 单节点 DAG 定义
@@ -117,72 +117,20 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
     await db.insert(schema.dagRuns).values({
       id: runId,
       dagId: dag.id,
-      status: 'running',
+      status: 'pending',
       createdAt: now,
-      startedAt: now,
     });
 
-    // 4. Week 1: 单节点执行
-    // TODO: Week 2 接入 OpenClaw Gateway，Week 1 使用 mock 响应
-    const node = definition.nodes[0];
+    // 4. 添加到 BullMQ 队列异步执行
+    const queue = getDagQueue();
+    await queue.add('execute-dag', {
+      runId,
+      dagId: dag.id,
+      definition,
+    });
 
-    try {
-      // Mock 响应（后续接入 Gateway）
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      const mockResponse = `[Mock] Agent "${node.agentId}" 执行 Prompt: "${node.prompt.slice(0, 50)}..."`;
-
-      // 更新为成功状态
-      const endedAt = new Date().toISOString();
-      await db
-        .update(schema.dagRuns)
-        .set({
-          status: 'completed',
-          output: mockResponse,
-          endedAt,
-        })
-        .where(eq(schema.dagRuns.id, runId));
-
-      return { runId, status: 'completed' };
-    } catch (error) {
-      // 更新为失败状态
-      const endedAt = new Date().toISOString();
-      const errorMsg = error instanceof Error ? error.message : 'Execution failed';
-
-      await db
-        .update(schema.dagRuns)
-        .set({
-          status: 'failed',
-          error: errorMsg,
-          endedAt,
-        })
-        .where(eq(schema.dagRuns.id, runId));
-
-      return { runId, status: 'failed', error: errorMsg };
-    }
+    // 立即返回 runId，前端轮询获取状态
+    return { runId, status: 'pending' };
   });
 
-  // GET /api/dag-runs/:runId - 查询执行状态
-  app.get<{ Params: { runId: string } }>('/dag-runs/:runId', async (req, reply) => {
-    const db = getDb();
-    const [run] = await db
-      .select()
-      .from(schema.dagRuns)
-      .where(eq(schema.dagRuns.id, req.params.runId));
-
-    if (!run) {
-      return reply.status(404).send({ error: 'Run not found' });
-    }
-
-    return {
-      id: run.id,
-      dagId: run.dagId,
-      status: run.status,
-      output: run.output,
-      error: run.error,
-      startedAt: run.startedAt,
-      endedAt: run.endedAt,
-      createdAt: run.createdAt,
-    };
-  });
 };

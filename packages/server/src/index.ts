@@ -3,7 +3,8 @@ import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import {
   configReader, GatewayClient, initDb, loadYamlConfig,
-  connectRedis, disconnectRedis,
+  connectRedis, disconnectRedis, disconnectBullMqRedis,
+  initDagQueue, startDagWorker, stopDagWorker,
 } from '@clawgate/core';
 import { agentRoutes } from './routes/agents.js';
 import { sessionRoutes } from './routes/sessions.js';
@@ -12,6 +13,7 @@ import { eventsRoutes, broadcastEvent } from './routes/events.js';
 import { routeRoutes } from './routes/route.js';
 import { openaiRoutes } from './routes/openai.js';
 import { dagRoutes } from './routes/dags.js';
+import { dagRunRoutes } from './routes/dag-runs.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -36,6 +38,13 @@ await connectRedis();
 
 const cfg = configReader.get();
 const gateway = new GatewayClient({ url: cfg.gatewayUrl, token: cfg.gatewayToken });
+
+// 初始化 DAG 执行队列
+initDagQueue();
+
+// 启动 DAG Worker
+startDagWorker(gateway);
+app.log.info('DAG Worker started');
 app.decorate('gateway', gateway);
 
 // Connect gateway once at startup; reconnect loop handles drops automatically
@@ -60,6 +69,7 @@ await app.register(eventsRoutes, { prefix: '/ws' });
 await app.register(routeRoutes, { prefix: '/api' });
 await app.register(openaiRoutes, { prefix: '/v1' });
 await app.register(dagRoutes, { prefix: '/api' });
+await app.register(dagRunRoutes, { prefix: '/api' });
 
 try {
   await app.listen({ port: 3000, host: '0.0.0.0' });
@@ -71,8 +81,20 @@ try {
   process.exit(1);
 }
 
-process.on('SIGTERM', async () => { await disconnectRedis(); gateway.disconnect(); process.exit(0); });
-process.on('SIGINT',  async () => { await disconnectRedis(); gateway.disconnect(); process.exit(0); });
+process.on('SIGTERM', async () => {
+  await stopDagWorker();
+  await disconnectBullMqRedis();
+  await disconnectRedis();
+  gateway.disconnect();
+  process.exit(0);
+});
+process.on('SIGINT',  async () => {
+  await stopDagWorker();
+  await disconnectBullMqRedis();
+  await disconnectRedis();
+  gateway.disconnect();
+  process.exit(0);
+});
 
 // 导出 broadcastEvent 供测试使用
 export { broadcastEvent };

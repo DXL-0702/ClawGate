@@ -30,6 +30,20 @@ async function load(): Promise<void> {
   } catch {
     // use defaults on parse error
   }
+
+  // 从 device-auth.json 读取 gateway token（如果存在）
+  const authPath = join(OPENCLAW_DIR, 'identity', 'device-auth.json');
+  if (existsSync(authPath)) {
+    try {
+      const authRaw = await readFile(authPath, 'utf-8');
+      const authData = JSON.parse(authRaw) as { tokens?: { operator?: { token?: string } } };
+      if (authData.tokens?.operator?.token) {
+        config.gatewayToken = authData.tokens.operator.token;
+      }
+    } catch {
+      // ignore auth parse error
+    }
+  }
 }
 
 async function watchConfig(): Promise<void> {

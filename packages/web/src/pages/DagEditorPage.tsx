@@ -46,6 +46,7 @@ function DagEditorInner() {
     setRunError,
     resetRun,
     toDefinition,
+    loadFromDefinition,
     reset,
   } = useDagStore();
 
@@ -75,18 +76,24 @@ function DagEditorInner() {
         fitView({ padding: 0.2 });
       }, 100);
     } else if (id) {
-      // 加载现有 DAG（Week 2 实现）
+      // 加载现有 DAG
       fetch(`/api/dags/${id}`)
         .then((r) => r.json())
         .then((data) => {
           setDagName(data.name);
-          // TODO: loadFromDefinition(data.definition);
+          if (data.definition) {
+            loadFromDefinition(data.definition);
+            // 加载完成后适应视图
+            setTimeout(() => {
+              fitView({ padding: 0.2 });
+            }, 100);
+          }
         })
         .catch(() => {
           navigate('/dags');
         });
     }
-  }, [id, isNew, reset, addNode, fitView, navigate]);
+  }, [id, isNew, reset, addNode, loadFromDefinition, fitView, navigate]);
 
   // 添加节点
   const handleAddNode = useCallback(() => {

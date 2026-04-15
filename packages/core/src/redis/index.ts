@@ -59,6 +59,35 @@ export async function disconnectRedis(): Promise<void> {
   }
 }
 
+// ── BullMQ 专用 Redis 连接 ─────────────────────────────────────
+// BullMQ 要求 blocking commands 的 maxRetriesPerRequest 为 null
+let bullMqClient: Redis | null = null;
+
+export function getBullMqRedis(url?: string): Redis {
+  if (bullMqClient) return bullMqClient;
+
+  const redisUrl = url ?? process.env['REDIS_URL'] ?? 'redis://127.0.0.1:6379';
+  bullMqClient = new Redis(redisUrl, {
+    lazyConnect: true,
+    maxRetriesPerRequest: null, // BullMQ 要求
+    enableReadyCheck: true,
+    enableOfflineQueue: false,
+  });
+
+  bullMqClient.on('error', (err) => {
+    console.error('[BullMQ Redis] connection error:', err.message);
+  });
+
+  return bullMqClient;
+}
+
+export async function disconnectBullMqRedis(): Promise<void> {
+  if (bullMqClient) {
+    await bullMqClient.quit();
+    bullMqClient = null;
+  }
+}
+
 // ── 高层操作封装 ────────────────────────────────────────────────
 
 export async function setSessionState(

@@ -1,1 +1,109 @@
 @import "tailwindcss";
+
+/* ===== 方案A: Linear 风格 — 紫蓝神秘主题 ===== */
+
+@theme {
+  /* 背景层级（极深灰黑，营造沉浸感）*/
+  --color-bg-base: #0c0c0c;
+  --color-bg-elevated: #111113;
+  --color-bg-overlay: #18181b;
+  --color-bg-hover: #27272a;
+  --color-bg-pressed: #3f3f46;
+
+  /* 品牌强调色（紫罗兰 - AI感）*/
+  --color-accent: #7c3aed;
+  --color-accent-hover: #8b5cf6;
+  --color-accent-subtle: rgba(124, 58, 237, 0.1);
+  --color-accent-glow: rgba(124, 58, 237, 0.15);
+
+  /* 功能语义色（高饱和度确保可读）*/
+  --color-success: #10b981;
+  --color-success-subtle: rgba(16, 185, 129, 0.1);
+  --color-success-glow: rgba(16, 185, 129, 0.2);
+
+  --color-warning: #f59e0b;
+  --color-warning-subtle: rgba(245, 158, 11, 0.1);
+
+  --color-error: #f43f5e;
+  --color-error-subtle: rgba(244, 63, 94, 0.1);
+  --color-error-glow: rgba(244, 63, 94, 0.2);
+
+  --color-info: #3b82f6;
+  --color-info-subtle: rgba(59, 130, 246, 0.1);
+
+  /* 文字层级（灰阶，高对比）*/
+  --color-text-primary: #fafafa;
+  --color-text-secondary: #a1a1aa;
+  --color-text-tertiary: #71717a;
+  --color-text-disabled: #52525b;
+  --color-text-inverse: #09090b;
+
+  /* 边框（极细，几乎隐形）*/
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-border-hover: rgba(255, 255, 255, 0.12);
+  --color-border-active: rgba(255, 255, 255, 0.2);
+}
+
+/* 毛玻璃（Glassmorphism）- Linear 标志性效果 */
+.glass {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: rgba(17, 17, 19, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* 顶部导航栏专用：渐变遮罩融合 */
+.glass-nav {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: linear-gradient(to bottom, rgba(12, 12, 12, 0.9), rgba(17, 17, 19, 0.8));
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* 发光效果（Glow）- 状态指示 */
+.glow-accent {
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.15);
+}
+
+.glow-accent-strong {
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.5),
+              0 0 20px rgba(124, 58, 237, 0.3);
+}
+
+.glow-success {
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.5),
+              0 0 15px rgba(16, 185, 129, 0.2);
+}
+
+.glow-error {
+  box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.5),
+              0 0 15px rgba(244, 63, 94, 0.2);
+}
+
+/* 标准过渡 */
+.transition-theme {
+  transition-property: background-color, border-color, color, box-shadow, transform;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
+}
+
+/* 脉冲动画 - 运行中状态 */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.5), 0 0 20px rgba(124, 58, 237, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.7), 0 0 30px rgba(124, 58, 237, 0.5);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* 渐变文字 - 标题点缀 */
+.text-gradient {
+  background: linear-gradient(to right, #7c3aed, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}

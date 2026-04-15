@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core';
 
 export const agents = sqliteTable('agents', {
   id: text('id').primaryKey(),
@@ -64,3 +64,23 @@ export const dagRuns = sqliteTable('dag_runs', {
   endedAt: text('ended_at'),
   createdAt: text('created_at').notNull(),
 });
+
+// v0.5 DAG 节点执行状态表
+export const dagNodeStates = sqliteTable('dag_node_states', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  runId: text('run_id').notNull(),           // 关联 dag_runs.id
+  nodeId: text('node_id').notNull(),         // DAG 定义中的节点 ID
+  status: text('status', {
+    enum: ['pending', 'running', 'completed', 'failed', 'skipped']
+  }).notNull().default('pending'),
+  output: text('output'),                    // 节点执行输出（JSON 或纯文本）
+  error: text('error'),                      // 错误信息
+  startedAt: text('started_at'),             // 开始执行时间 ISO8601
+  endedAt: text('ended_at'),                 // 结束执行时间 ISO8601
+  createdAt: text('created_at').notNull(),   // 记录创建时间
+}, (table) => ({
+  // 复合索引：加速查询指定 run 的所有节点状态
+  runIdIdx: index('idx_node_states_run_id').on(table.runId),
+  // 复合索引：加速查询指定 run + 特定节点的状态
+  runNodeIdx: index('idx_node_states_run_node').on(table.runId, table.nodeId),
+}));
