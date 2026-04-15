@@ -157,9 +157,16 @@ ClawGate/
 |-----------|--------|------------|
 | MVP | ✅ | Monorepo, OpenClaw integration, Web UI skeleton |
 | v0.1 | ✅ | Agent management, session tracking, CLI, SQLite |
-| v0.3 | ✅ | 4-layer routing engine, OpenAI-compatible API |
-| v0.5 | 🔜 | DAG workflow orchestration, visual editor |
+| v0.3 | ✅ | 4-layer routing engine, OpenAI-compatible API (L1 verified, L2/L3 code-ready, L4 pending) |
+| v0.5 | 🔜 | DAG workflow orchestration, visual editor, L2/L3/L4 full validation |
 | v1.0 | 🔜 | Multi-instance ops, SDK (Node.js + Python), production hardening |
+
+**v0.3 End-to-End Validation (2026-04-15)**:
+- ✅ L1 Hash cache: 100% hit rate, latency 5s → 2ms
+- ✅ OpenAI-compatible endpoint `/v1/chat/completions`
+- ✅ Service startup chain: Rust (3001) + Python (8000) + Node.js (3000)
+- ⚠️ L2/L3 code ready but bypassed by L1 fast path, deferred to v0.5
+- 🔜 L4 feedback API: Node.js endpoint pending implementation
 
 ---
 

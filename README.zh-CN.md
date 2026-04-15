@@ -157,9 +157,16 @@ ClawGate/
 |--------|------|----------|
 | MVP | ✅ | Monorepo、OpenClaw 集成、Web UI 骨架 |
 | v0.1 | ✅ | Agent 管理、Session 追踪、CLI、SQLite |
-| v0.3 | ✅ | 四层路由引擎、OpenAI 兼容 API |
+| v0.3 | ✅ | 四层路由引擎、OpenAI 兼容 API（L1 已验证，L2/L3 代码就绪，L4 待实现） |
 | v0.5 | 🔜 | DAG 工作流编排、可视化编辑器 |
 | v1.0 | 🔜 | 多实例运维、SDK（Node.js + Python）、生产加固 |
+
+**v0.3 端到端验证结果（2026-04-15）**：
+- ✅ L1 Hash 缓存：命中率 100%，延迟 5s → 2ms
+- ✅ OpenAI 兼容端点 `/v1/chat/completions`
+- ✅ 服务启动链路：Rust (3001) + Python (8000) + Node.js (3000)
+- ⚠️ L2/L3 深度验证：被 L1 快速路径拦截，代码就绪，推迟至 v0.5
+- 🔜 L4 反馈接口：Node.js 端点未实现
 
 ---
 

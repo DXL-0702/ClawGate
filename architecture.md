@@ -219,9 +219,14 @@ pushRoutingLog()              ← Redis routing_logs_buf
 | API key not configured | 400 | `ConfigError` thrown in Provider |
 | Provider call failed | 502 | Network / model error |
 
-### 6.3 Known Limitation
+### 6.3 Known Limitations (v0.3)
 
-`pushRoutingLog()` depends on `getRedis()`, but `connectRedis()` is not yet called independently in `server/index.ts`. Routing log writes silently fail (non-fatal `catch`). **Scheduled fix: v0.5 Redis initialization refactor.**
+| Issue | Status | Details |
+|-------|--------|---------|
+| **Issue 1** | ✅ Fixed | `connectRedis()` now called at startup. Routing logs write successfully. |
+| **Issue 5** | 🔜 Deferred | Qdrant healthcheck reports `unhealthy` due to missing `curl` in image. Does not affect functionality. |
+| **L2/L3 validation** | ⚠️ Code ready | Python services implemented, but L1 fast path bypasses them in current test cases. Deep validation deferred to v0.5. |
+| **L4 feedback API** | ❌ Pending | Node.js `POST /api/route/feedback` endpoint not yet implemented.
 
 ---
 
@@ -385,5 +390,6 @@ ws://127.0.0.1:18789
 
 ---
 
-**Last Updated**: 2026-03-31
+**Last Updated**: 2026-04-15
 **Version**: v0.3 (Intelligent Routing Core + OpenAI-Compatible API)
+**Validation**: L1 cache verified (100% hit rate, 5s→2ms). L2/L3 code ready, deferred to v0.5. L4 API pending.

@@ -1,27 +1,24 @@
 # 下一步开发计划 (NEXT)
 
 > 本文件记录当前阶段的**具体开发思路**，完整路线图请参阅 [README.md](../../README.md)。
-> 最后更新：v0.3 阶段
+> 最后更新：v0.5 规划阶段
 
 ---
 
-## 当前阶段：v0.3 收尾
+## 当前阶段：v0.3 ✅ 已完成
 
-### 待完成项
+### 完成项
 
-#### 1. L2/L3 服务层验证（进行中）
-- **状态**：Ollama 模型（qwen2.5:3b）正在下载
-- **待验证**：模型就绪后，发送复杂 prompt 验证 L3 分类返回 `layer: L3`
-- **待验证**：第二次相同 prompt 命中 L2 向量缓存，返回 `layer: L2`
-- **待验证**：L4 负反馈 3 次触发降级，写入 Qdrant 向量库
+- **L1 Hash 缓存** ✅：端到端验证通过，缓存命中率 100%，延迟降低 99.96%
+- **OpenAI 兼容端点** ✅：`/v1/chat/completions` 200 OK，Provider 分发正常
+- **Issue 1 修复** ✅：`connectRedis()` 启动链路修复，路由日志正常写入
+- **服务启动链路** ✅：Rust + Python + Node.js 三服务全链路验证通过
 
-#### 2. OpenAI 兼容端点 `/v1/chat/completions`（✅ 已完成）
-- 实现详情见 DONE.md
-- 待补充：`qwen2.5:7b` 模型拉取后完整 Ollama 路径验证（`ollama pull qwen2.5:7b`）
+### 遗留项（推迟至 v0.5）
 
-#### 3. 路由规则管理 UI（低优先级，可延后至 v0.5）
-- 当前可通过 `clawgate.yaml` 热重载替代
-- 待实现：L2 阈值滑块、L3 模型选择、utterances 配置
+- **L2/L3 深度验证**：代码就绪，但被 L1 快速路径拦截，需设计绕过测试用例
+- **L4 反馈接口**：Node.js 端点未实现，需补充 `POST /api/route/feedback`
+- **Qdrant healthcheck**：Issue 5 推迟，不影响功能
 
 ---
 

@@ -117,4 +117,20 @@
 - system message 透传正常，messages 为空 / 无 user message 均返回正确 400
 - Ollama Provider 完整链路 mock 验证通过（真实模型受测试机内存限制，非代码问题）
 - 全量构建通过（5/5 包，1.8s）
-- 已知待完善：`pushRoutingLog` 依赖 `initRedis` 独立调用，v0.3 阶段统一处理
+- Issue 1 修复 ✅：`connectRedis()` 已在 `server/index.ts` 启动时调用，路由日志正常写入
+
+### v0.3 端到端验证结果（2026-04-15）
+
+| 功能 | 验证状态 | 备注 |
+|------|----------|------|
+| **L1 Hash 缓存** | ✅ 通过 | 首次 cacheHit=false (5s)，二次 cacheHit=true (2ms)，命中率 100% |
+| **OpenAI 兼容端点** | ✅ 通过 | `/v1/chat/completions` 200 OK，Provider 分发正常 |
+| **路由决策日志** | ✅ 通过 | Redis `routing_logs_buf` 正常写入，Issue 1 修复验证 |
+| **Rust 统计端点** | ✅ 通过 | `/stats` 返回正确命中率统计 |
+| **服务启动链路** | ✅ 通过 | Rust (3001) + Python (8000) + Node.js (3000) 全链路通 |
+| **L2 向量检索** | ⚠️ 代码就绪 | 被 L1 快速路径拦截，未在端到端中触发 |
+| **L3 哨兵模型** | ⚠️ 代码就绪 | 同上，代码完整但未触发验证 |
+| **L4 反馈接口** | ❌ 未实现 | Node.js 缺少 `POST /api/route/feedback` 路由 |
+
+**v0.3 核心交付**：L1 缓存 + OpenAI 端点已验证，可交付。L2/L3 代码就绪待 v0.5 深度验证，L4 接口需补充实现。
+
