@@ -1,7 +1,10 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
-import { configReader, GatewayClient, initDb, loadYamlConfig } from '@clawgate/core';
+import {
+  configReader, GatewayClient, initDb, loadYamlConfig,
+  connectRedis, disconnectRedis,
+} from '@clawgate/core';
 import { agentRoutes } from './routes/agents.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { healthRoutes } from './routes/health.js';
@@ -26,6 +29,9 @@ await loadYamlConfig();
 
 // 初始化 SQLite
 initDb();
+
+// 初始化 Redis
+await connectRedis();
 
 const cfg = configReader.get();
 const gateway = new GatewayClient({ url: cfg.gatewayUrl, token: cfg.gatewayToken });
@@ -63,8 +69,8 @@ try {
   process.exit(1);
 }
 
-process.on('SIGTERM', () => { gateway.disconnect(); process.exit(0); });
-process.on('SIGINT',  () => { gateway.disconnect(); process.exit(0); });
+process.on('SIGTERM', async () => { await disconnectRedis(); gateway.disconnect(); process.exit(0); });
+process.on('SIGINT',  async () => { await disconnectRedis(); gateway.disconnect(); process.exit(0); });
 
 // 导出 broadcastEvent 供测试使用
 export { broadcastEvent };

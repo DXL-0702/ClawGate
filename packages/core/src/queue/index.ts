@@ -3,7 +3,7 @@ import { getDb, schema } from '../db/index.js';
 import { getRedis, REDIS_KEYS } from '../redis/index.js';
 import { getYamlConfig } from '../yaml-config/index.js';
 
-const QUEUE_NAME = 'clawgate:archive';
+const QUEUE_NAME = 'clawgate-archive';
 const JOB_COSTS_ARCHIVE = 'costs:archive';
 const JOB_LOGS_ARCHIVE = 'logs:archive';
 
