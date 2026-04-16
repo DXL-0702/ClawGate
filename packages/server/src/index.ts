@@ -20,6 +20,8 @@ import { openclawLifecycleRoutes } from './routes/openclaw-lifecycle.js';
 import { instanceRoutes } from './routes/instances.js';
 import { teamRoutes } from './routes/teams.js';
 import { memberRoutes } from './routes/members.js';
+import { healthOverviewRoutes } from './routes/health-overview.js';
+import { alertRoutes } from './routes/alerts.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -123,6 +125,8 @@ await app.register(openclawLifecycleRoutes, { prefix: '/api' });
 await app.register(instanceRoutes, { prefix: '/api' });
 await app.register(teamRoutes, { prefix: '/api' });
 await app.register(memberRoutes, { prefix: '/api' });
+await app.register(healthOverviewRoutes, { prefix: '/api' });
+await app.register(alertRoutes, { prefix: '/api' });
 
 try {
   await app.listen({ port: 3000, host: '0.0.0.0' });

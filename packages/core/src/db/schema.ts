@@ -101,6 +101,28 @@ export const dagNodeStates = sqliteTable('dag_node_states', {
   runNodeIdx: index('idx_node_states_run_node').on(table.runId, table.nodeId),
 }));
 
+// v1.0 Phase 3: 告警记录表
+export const alerts = sqliteTable('alerts', {
+  id: text('id').primaryKey(),              // uuid
+  teamId: text('team_id').notNull().references(() => teams.id),
+  instanceId: text('instance_id').references(() => instances.id),
+  type: text('type', { enum: ['offline', 'error', 'high_load', 'gateway_unhealthy'] }).notNull(),
+  severity: text('severity', { enum: ['critical', 'warning', 'info'] }).notNull(),
+  message: text('message').notNull(),
+  details: text('details'),                   // JSON 额外信息
+  acknowledged: integer('acknowledged', { mode: 'boolean' }).notNull().default(false),
+  acknowledgedBy: text('acknowledged_by'),    // member id
+  acknowledgedAt: text('acknowledged_at'),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  // 索引：查询团队告警
+  teamIdIdx: index('idx_alerts_team_id').on(table.teamId),
+  // 索引：查询未确认告警
+  acknowledgedIdx: index('idx_alerts_acknowledged').on(table.acknowledged),
+  // 索引：按时间查询
+  createdAtIdx: index('idx_alerts_created_at').on(table.createdAt),
+}));
+
 // v1.0 团队部署架构表
 
 export const teams = sqliteTable('teams', {

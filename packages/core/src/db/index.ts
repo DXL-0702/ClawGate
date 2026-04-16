@@ -182,6 +182,25 @@ function migrate(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_members_team_id ON members(team_id);
     CREATE INDEX IF NOT EXISTS idx_instances_team_id ON instances(team_id);
     CREATE INDEX IF NOT EXISTS idx_instances_environment ON instances(environment);
+
+    -- v1.0 Phase 3: 告警表
+    CREATE TABLE IF NOT EXISTS alerts (
+      id              TEXT PRIMARY KEY,
+      team_id         TEXT NOT NULL REFERENCES teams(id),
+      instance_id     TEXT REFERENCES instances(id),
+      type            TEXT NOT NULL,
+      severity        TEXT NOT NULL,
+      message         TEXT NOT NULL,
+      details         TEXT,
+      acknowledged    INTEGER NOT NULL DEFAULT 0,
+      acknowledged_by TEXT,
+      acknowledged_at TEXT,
+      created_at      TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_alerts_team_id ON alerts(team_id);
+    CREATE INDEX IF NOT EXISTS idx_alerts_acknowledged ON alerts(acknowledged);
+    CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON alerts(created_at);
   `);
 
   // =========================================================================

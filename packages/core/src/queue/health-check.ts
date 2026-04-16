@@ -91,6 +91,16 @@ export function startHealthCheckWorker(): Worker {
             // 无心跳数据，标记为 offline
             console.log(`[HealthCheck] Instance ${instance.name} (${instance.id}) heartbeat expired, marking offline`);
 
+            // 获取实例完整信息（用于告警）
+            const [instanceFull] = await db
+              .select({
+                id: schema.instances.id,
+                teamId: schema.instances.teamId,
+                name: schema.instances.name,
+              })
+              .from(schema.instances)
+              .where(eq(schema.instances.id, instance.id));
+
             await db
               .update(schema.instances)
               .set({
@@ -100,6 +110,21 @@ export function startHealthCheckWorker(): Worker {
               .where(eq(schema.instances.id, instance.id));
 
             offlineCount++;
+
+            // 创建告警记录
+            if (instanceFull) {
+              await db.insert(schema.alerts).values({
+                id: crypto.randomUUID(),
+                teamId: instanceFull.teamId,
+                instanceId: instanceFull.id,
+                type: 'offline',
+                severity: 'critical',
+                message: `Instance "${instanceFull.name}" is offline (heartbeat expired)`,
+                details: JSON.stringify({ lastHeartbeatAt: instance.lastHeartbeatAt }),
+                createdAt: nowISO,
+              });
+              console.log(`[HealthCheck] Created alert for offline instance ${instance.id}`);
+            }
 
             // 3. 断开 WebSocket 连接（如果存在）
             try {
