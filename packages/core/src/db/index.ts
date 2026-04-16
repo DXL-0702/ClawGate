@@ -29,16 +29,23 @@ export function initDb(dbPath?: string): Db {
   return db;
 }
 
+/**
+ * 数据库迁移函数
+ * 原则：
+ * 1. 使用 CREATE TABLE IF NOT EXISTS —— 首次创建表
+ * 2. 使用 ALTER TABLE ADD COLUMN —— 已有表添加新列
+ * 3. 绝不删除已有表或数据
+ */
 function migrate(sqlite: InstanceType<typeof Database>): void {
-  sqlite.exec(`
-    -- 开发环境：强制重建表以应用 schema 变更（注意外键依赖顺序）
-    DROP TABLE IF EXISTS dag_node_states;
-    DROP TABLE IF EXISTS dag_runs;
-    DROP TABLE IF EXISTS dags;
-    DROP TABLE IF EXISTS instances;
-    DROP TABLE IF EXISTS members;
-    DROP TABLE IF EXISTS teams;
+  // 获取现有表信息（用于判断是否需要迁移）
+  const tableInfo = sqlite.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table'"
+  ).all() as { name: string }[];
+  const existingTables = new Set(tableInfo.map(t => t.name));
 
+  // 创建表（如果不存在）
+  sqlite.exec(`
+    -- 核心表：agents
     CREATE TABLE IF NOT EXISTS agents (
       id          TEXT PRIMARY KEY,
       name        TEXT NOT NULL,
@@ -176,6 +183,39 @@ function migrate(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_instances_team_id ON instances(team_id);
     CREATE INDEX IF NOT EXISTS idx_instances_environment ON instances(environment);
   `);
+
+  // =========================================================================
+  // 列级别迁移（对已存在的表添加新列）
+  // =========================================================================
+
+  // v1.0: dags 表添加 team_id 列（如果不存在）
+  if (existingTables.has('dags')) {
+    try {
+      const dagsColumns = sqlite.prepare('PRAGMA table_info(dags)').all() as { name: string }[];
+      const hasTeamId = dagsColumns.some(c => c.name === 'team_id');
+      if (!hasTeamId) {
+        sqlite.exec(`ALTER TABLE dags ADD COLUMN team_id TEXT NOT NULL DEFAULT 'default-team'`);
+        console.log('[DB Migration] Added team_id column to dags table');
+      }
+    } catch (err) {
+      console.error('[DB Migration] Failed to add team_id to dags:', err);
+    }
+  }
+
+  // =========================================================================
+  // 未来迁移模板（复制使用）
+  // =========================================================================
+  // if (existingTables.has('表名')) {
+  //   try {
+  //     const columns = sqlite.prepare('PRAGMA table_info(表名)').all() as { name: string }[];
+  //     if (!columns.some(c => c.name === '新列名')) {
+  //       sqlite.exec(`ALTER TABLE 表名 ADD COLUMN 新列名 类型 约束`);
+  //       console.log('[DB Migration] Added 新列名 column to 表名 table');
+  //     }
+  //   } catch (err) {
+  //     console.error('[DB Migration] Failed:', err);
+  //   }
+  // }
 }
 
 export { schema };

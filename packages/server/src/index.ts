@@ -5,6 +5,7 @@ import {
   configReader, GatewayClient, initDb, loadYamlConfig,
   connectRedis, disconnectRedis, disconnectBullMqRedis,
   initDagQueue, startDagWorker, stopDagWorker,
+  startHealthCheckScheduler, startHealthCheckWorker, stopHealthCheck,
 } from '@clawgate/core';
 import { agentRoutes } from './routes/agents.js';
 import { sessionRoutes } from './routes/sessions.js';
@@ -60,6 +61,11 @@ initDagQueue();
 // 启动 DAG Worker（使用 GatewayPool 动态选择实例）
 startDagWorker();
 app.log.info('DAG Worker started with GatewayPool');
+
+// 启动实例健康检查定时任务
+startHealthCheckScheduler();
+startHealthCheckWorker();
+app.log.info('Instance health check scheduler started (running every minute)');
 
 // 启动时注册所有启用的 Cron DAG
 import { getDb as getDbForCron, schema as schemaForCron, updateDagCronJob } from '@clawgate/core';
@@ -130,6 +136,7 @@ try {
 
 process.on('SIGTERM', async () => {
   await stopDagWorker();
+  await stopHealthCheck();
   await disconnectBullMqRedis();
   await disconnectRedis();
   gateway.disconnect();
@@ -137,6 +144,7 @@ process.on('SIGTERM', async () => {
 });
 process.on('SIGINT',  async () => {
   await stopDagWorker();
+  await stopHealthCheck();
   await disconnectBullMqRedis();
   await disconnectRedis();
   gateway.disconnect();

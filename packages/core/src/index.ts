@@ -17,6 +17,12 @@ export {
   initQueue, getQueue, startArchiveWorker,
   scheduleArchiveJobs, stopQueue,
 } from './queue/index.js';
+export {
+  startHealthCheckScheduler,
+  startHealthCheckWorker,
+  stopHealthCheck,
+  triggerManualHealthCheck,
+} from './queue/health-check.js';
 export { RouterClient } from './router/index.js';
 export {
   executeAgentNode,
