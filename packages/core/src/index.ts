@@ -30,6 +30,9 @@ export {
   initDagQueue,
   getDagQueue,
   stopDagQueue,
+  addDagCronJob,
+  removeDagCronJob,
+  updateDagCronJob,
 } from './dag/queue.js';
 export type { DagExecutionJob } from './dag/queue.js';
 export {

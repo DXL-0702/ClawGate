@@ -48,9 +48,19 @@ export const dags = sqliteTable('dags', {
   id: text('id').primaryKey(),              // uuid
   name: text('name').notNull(),
   definition: text('definition').notNull(), // JSON: { nodes: [], edges: [] }
+  // v0.5 Wave 2: 触发器配置
+  trigger: text('trigger', { enum: ['manual', 'cron', 'webhook'] })
+    .notNull()
+    .default('manual'),
+  cronExpression: text('cron_expression'),  // Cron 表达式 (如 "*/5 * * * *")
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  webhookToken: text('webhook_token'),       // Webhook 验证 token
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-});
+}, (table) => ({
+  // 索引：快速查询启用的 Cron DAG
+  triggerEnabledIdx: index('idx_dags_trigger_enabled').on(table.trigger, table.enabled),
+}));
 
 export const dagRuns = sqliteTable('dag_runs', {
   id: text('id').primaryKey(),              // uuid
@@ -58,6 +68,9 @@ export const dagRuns = sqliteTable('dag_runs', {
   status: text('status', { enum: ['pending', 'running', 'completed', 'failed'] })
     .notNull()
     .default('pending'),
+  triggeredBy: text('triggered_by', { enum: ['manual', 'cron', 'webhook'] })
+    .notNull()
+    .default('manual'),
   output: text('output'),                   // 执行结果 JSON
   error: text('error'),                     // 错误信息
   startedAt: text('started_at'),

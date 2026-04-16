@@ -14,11 +14,11 @@ export function startDagWorker(gateway: GatewayClient): Worker {
   dagWorker = new Worker<DagExecutionJob>(
     'dag-execution',
     async (job: Job<DagExecutionJob>) => {
-      const { runId, dagId, definition } = job.data;
+      const { runId, dagId, definition, triggeredBy = 'manual' } = job.data;
       const db = getDb();
       const now = new Date().toISOString();
 
-      console.log(`[DAG Worker] Starting run ${runId} for DAG ${dagId}`);
+      console.log(`[DAG Worker] Starting run ${runId} for DAG ${dagId} (triggeredBy: ${triggeredBy})`);
 
       try {
         // 1. 更新 dag_runs 状态为 running

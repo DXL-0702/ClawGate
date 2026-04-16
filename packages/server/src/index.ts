@@ -57,6 +57,39 @@ initDagQueue();
 startDagWorker(gateway);
 app.log.info('DAG Worker started');
 
+// 启动时注册所有启用的 Cron DAG
+import { getDb as getDbForCron, schema as schemaForCron, updateDagCronJob } from '@clawgate/core';
+import { eq, and } from 'drizzle-orm';
+
+(async () => {
+  try {
+    const db = getDbForCron();
+    const cronDags = await db
+      .select()
+      .from(schemaForCron.dags)
+      .where(and(
+        eq(schemaForCron.dags.trigger, 'cron'),
+        eq(schemaForCron.dags.enabled, true)
+      ));
+
+    for (const dag of cronDags) {
+      try {
+        const definition = JSON.parse(dag.definition);
+        await updateDagCronJob(dag.id, dag.cronExpression, true, definition);
+        app.log.info(`Registered cron DAG: ${dag.name} (${dag.cronExpression})`);
+      } catch (err) {
+        app.log.error({ err, dagId: dag.id }, 'Failed to register cron DAG on startup');
+      }
+    }
+
+    if (cronDags.length > 0) {
+      app.log.info(`Total cron DAGs registered: ${cronDags.length}`);
+    }
+  } catch (err) {
+    app.log.error({ err }, 'Failed to initialize cron DAGs on startup');
+  }
+})();
+
 app.decorate('gateway', gateway);
 
 // 将 Gateway 推送事件桥接到 WebSocket 广播

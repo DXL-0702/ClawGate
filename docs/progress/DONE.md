@@ -182,3 +182,79 @@
 
 **v0.5 Wave 1 核心交付**：DAG 工作流基础架构完成，单节点执行链路代码完整。
 
+---
+
+## v0.5 Wave 2 — DAG 触发器机制（已完成）
+
+### 数据库 Schema 扩展
+
+- **`dags` 表触发器字段**：`trigger` (manual/cron/webhook), `cronExpression`, `enabled`, `webhookToken`
+- **`dag_runs` 表触发来源**：`triggeredBy` 字段记录 manual/cron/webhook
+- **复合索引**：`idx_dags_trigger_enabled` 加速启用的 Cron DAG 查询
+
+### B7: Cron 定时触发器
+
+- **BullMQ JobScheduler**：`upsertJobScheduler` / `removeJobScheduler` (v5 API)
+- **Cron 表达式支持**：标准 5 字段格式（minute hour day month weekday）
+- **动态管理**：
+  - 创建 DAG 时自动注册 Cron 任务
+  - PATCH 更新时同步更新/移除 Cron 任务
+  - 禁用 DAG 时自动停止 Cron 任务
+- **启动时注册**：Server 启动自动加载所有启用的 Cron DAG
+
+**验证结果**：
+```bash
+# 创建每分钟执行的 Cron DAG
+POST /api/dags { "trigger": "cron", "cronExpression": "*/1 * * * *", ... }
+# 返回：{ id, name, trigger, cronExpression, enabled }
+
+# 自动触发验证
+[DAG Worker] Starting run for DAG ... (triggeredBy: cron)
+```
+
+### B8: Webhook 外部触发器
+
+- **端点**：`POST /api/dags/:id/webhook?token={webhookToken}`
+- **Token 生成**：创建 Webhook DAG 时自动生成 UUID token
+- **安全验证**：Token 不匹配返回 401 Unauthorized
+- **触发记录**：`triggeredBy: 'webhook'` 写入 `dag_runs`
+
+**验证结果**：
+```bash
+# 创建 Webhook DAG
+POST /api/dags { "trigger": "webhook" }
+# 返回：{ webhookToken: "8da39e79-..." }
+
+# 触发执行
+POST /api/dags/:id/webhook?token=8da39e79-...
+# 返回：{ runId, status: "pending", triggeredBy: "webhook" }
+
+# 错误 Token
+POST /api/dags/:id/webhook?token=wrong
+# 返回：{ error: "Invalid webhook token" } (401)
+```
+
+### API 更新
+
+- **CRUD 扩展**：
+  - `GET /api/dags` — 返回 trigger/enabled 字段
+  - `GET /api/dags/:id` — 返回完整触发器配置
+  - `PATCH /api/dags/:id` — 支持更新 trigger/cronExpression/enabled
+  - `DELETE /api/dags/:id` — 自动移除关联 Cron 任务
+- **触发方式统一**：所有触发方式（manual/cron/webhook）共用同一 Worker 执行链路
+
+### v0.5 Wave 2 验证结果
+
+| 功能 | 验证状态 | 备注 |
+|------|----------|------|
+| **Cron DAG 创建** | ✅ | 支持标准 Cron 表达式，自动注册任务 |
+| **Cron 动态更新** | ✅ | PATCH 更新表达式/启用状态，实时生效 |
+| **Cron 自动触发** | ✅ | 每分钟自动触发，`triggeredBy: cron` |
+| **Webhook DAG 创建** | ✅ | 自动生成 token，返回完整 URL |
+| **Webhook 触发** | ✅ | 正确 token 立即执行，记录来源 |
+| **Webhook 401 验证** | ✅ | 错误 token 返回 401，安全可控 |
+| **禁用逻辑** | ✅ | 禁用后 Cron 停止，手动/Webhook 拒绝 |
+| **启动注册** | ✅ | Server 重启后自动加载启用的 Cron DAG |
+
+**v0.5 Wave 2 核心交付**：DAG 自动化调度能力完整，支持定时（Cron）和外部（Webhook）两种自动触发方式。
+

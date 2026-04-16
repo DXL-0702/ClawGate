@@ -1,59 +1,71 @@
 # 下一步开发计划 (NEXT)
 
 > 本文件记录当前阶段的**具体开发思路**，完整路线图请参阅 [README.md](../../README.md)。
-> 最后更新：v0.5 Wave 1 完成，进入 Wave 2
+> 最后更新：v0.5 Wave 2 完成，进入 Wave 3
 
 ---
 
-## 当前阶段：v0.5 Wave 1 ✅ 已完成
+## 当前阶段：v0.5 Wave 2 ✅ 已完成
 
-### Wave 1 完成项
+### Wave 2 完成项
 
-- ✅ Linear 风格主题系统
-- ✅ `dag_node_states` 表
-- ✅ Gateway 执行封装 (`executeAgentNode`)
-- ✅ DAG Worker 框架 (BullMQ)
-- ✅ `/run` 异步化 + 状态查询 API
-- ✅ DAG 编辑器加载绑定
+- ✅ DAG 触发器 Schema 扩展（`trigger`, `cronExpression`, `enabled`, `webhookToken`）
+- ✅ Cron 定时触发器（BullMQ JobScheduler，启动时注册，动态更新）
+- ✅ Webhook 外部触发器（Token 验证，安全可控）
+- ✅ 三种触发方式统一（manual/cron/webhook 共用 Worker 链路）
+- ✅ L4 反馈接口（`POST /api/route/feedback` + Python 闭环）
 
-### Wave 1 遗留项
+### Wave 2 技术债务
 
-- ⚠️ Gateway 端到端验证 — 依赖 OpenClaw Gateway 连接调试
+- ⚠️ **Cron 时区问题**：当前使用服务器本地时区，需确认是否支持 UTC/自定义时区
+- ⚠️ **Webhook Payload**：当前仅触发执行，未实现自定义 payload 映射到节点输入
+- ⚠️ **Cron 持久化**：BullMQ Scheduler 任务在 Redis 重启后需重新注册
 
 ---
 
-## Wave 2 — 触发器机制（当前阶段）
+## 当前阶段：Wave 3 — 多节点依赖与并行（进行中）
 
 ### 目标
 
-实现 Cron 定时触发和 Webhook 外部触发，完成 DAG 自动化调度能力。
+实现多节点 DAG 执行（线性链和并行分支），支持节点间数据传递。
 
-### 任务清单
+### 任务清单（待讨论确定范围）
 
-#### B7. Cron 触发器
-- `dags` 表新增 `trigger: 'manual'|'cron'`, `cronExpression` 字段
-- BullMQ `upsertJobScheduler` 管理定时任务
-- 调度器启动时注册所有启用的 Cron DAG
+#### C1. 拓扑排序 + 循环依赖检测
+- 解析 DAG edges 构建执行图
+- 检测循环依赖（报错或自动断开）
+- 生成拓扑排序执行序列
 
-#### B8. Webhook 触发器
-- 新增端点 `POST /api/dags/:id/webhook`
-- 支持自定义 payload 映射到节点输入
-- Webhook URL 格式：`/api/dags/:id/webhook?token=...`
+#### C2. 线性链执行（简化版，推荐优先）
+- A → B → C 顺序执行
+- 上游输出 → 下游 Prompt 变量替换 (`{{node-1.output}}`)
+- 任一节点失败停止后续执行
 
-#### B9. L4 反馈接口 ✅ 已完成
-- `POST /api/route/feedback` 端点（Node.js）
-- `GET /api/route/feedback/stats` 统计查询
-- Python L4 反馈闭环逻辑，`NEGATIVE_THRESHOLD = 3` 触发降级
-- 异步写入 Qdrant 向量库，供 L2 后续检索命中
+#### C3. 并行批次执行（进阶版）
+- 依赖解析：识别可并行节点批次
+- 最大并发数限制（默认 5）
+- 信号量控制并发
+- 所有并行节点完成后再执行下游
 
-### 技术思路
+#### C4. 可视化 DAG 编辑器增强
+- React Flow edges 连线编辑
+- 节点连接关系保存到 definition
+- 执行状态可视化（节点颜色标识 pending/running/completed/failed）
+
+### 技术思路（简化版 vs 进阶版对比）
 
 ```
-Cron 触发:
-  BullMQ Scheduler → dag-execution 队列 → Worker 执行
+简化版（线性链）：
+  适用场景：80% 团队工作流（数据清洗 → 分析 → 报告生成）
+  实现：拓扑排序 → 串行执行 → 变量替换
+  工期：~1 周
+  价值：高（覆盖主要场景，用户可马上使用）
 
-Webhook 触发:
-  HTTP POST → 验证 token → 构造 Job → 入队执行
+进阶版（并行执行）：
+  适用场景：复杂数据处理（多源并行采集 → 合并分析）
+  实现：拓扑排序 + 批次分组 → 信号量并发控制
+  工期：~3 周（含可视化编辑器改造）
+  价值：中（场景较窄，实现复杂）
 ```
 
 ---

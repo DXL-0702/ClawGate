@@ -75,28 +75,34 @@ function migrate(sqlite: InstanceType<typeof Database>): void {
     );
 
     CREATE TABLE IF NOT EXISTS dags (
-      id           TEXT PRIMARY KEY,
-      name         TEXT NOT NULL,
-      definition   TEXT NOT NULL,
-      created_at   TEXT NOT NULL,
-      updated_at   TEXT NOT NULL
+      id               TEXT PRIMARY KEY,
+      name             TEXT NOT NULL,
+      definition       TEXT NOT NULL,
+      trigger          TEXT NOT NULL DEFAULT 'manual',
+      cron_expression  TEXT,
+      enabled          INTEGER NOT NULL DEFAULT 1,
+      webhook_token    TEXT,
+      created_at       TEXT NOT NULL,
+      updated_at       TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS dag_runs (
-      id           TEXT PRIMARY KEY,
-      dag_id       TEXT NOT NULL REFERENCES dags(id),
-      status       TEXT NOT NULL DEFAULT 'pending',
-      output       TEXT,
-      error        TEXT,
-      started_at   TEXT,
-      ended_at     TEXT,
-      created_at   TEXT NOT NULL
+      id            TEXT PRIMARY KEY,
+      dag_id        TEXT NOT NULL REFERENCES dags(id),
+      status        TEXT NOT NULL DEFAULT 'pending',
+      triggered_by  TEXT NOT NULL DEFAULT 'manual',
+      output        TEXT,
+      error         TEXT,
+      started_at    TEXT,
+      ended_at      TEXT,
+      created_at    TEXT NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_sessions_agent_id ON sessions(agent_id);
     CREATE INDEX IF NOT EXISTS idx_costs_date ON costs(date);
     CREATE INDEX IF NOT EXISTS idx_routing_logs_session_key ON routing_logs(session_key);
     CREATE INDEX IF NOT EXISTS idx_dag_runs_dag_id ON dag_runs(dag_id);
+    CREATE INDEX IF NOT EXISTS idx_dags_trigger_enabled ON dags(trigger, enabled);
 
     CREATE TABLE IF NOT EXISTS dag_node_states (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
