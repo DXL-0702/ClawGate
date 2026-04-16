@@ -1,7 +1,7 @@
 # 下一步开发计划 (NEXT)
 
 > 本文件记录当前阶段的**具体开发思路**，完整路线图请参阅 [README.md](../../README.md)。
-> 最后更新：v0.5 Wave 2 完成，进入 Wave 2.5
+> 最后更新：v0.5 Wave 2.5 + v1.0 Phase 2 完成，GatewayPool 已验证
 
 ---
 
@@ -23,41 +23,67 @@
 
 ---
 
-## 当前阶段：Wave 2.5 — OpenClaw 重启 + 升级（进行中）
+## 已完成：Wave 2.5 — OpenClaw 重启 + 升级 ✅
+
+**状态**：已完成（CLI 为主入口，API 已验证）
+
+**完成项**：
+- ✅ `backupConfig()` 实现：升级前自动备份配置到 `~/.openclaw/backups/{timestamp}/`
+- ✅ 路由挂载：`POST /api/openclaw/restart`、`POST /api/openclaw/upgrade`、`GET /api/openclaw/status`
+- ✅ CLI 命令：`clawgate openclaw status`、`restart`、`upgrade`
+- ⚠️ Web UI 延后（CLI 已覆盖核心场景）
+- ⚠️ EventBus 延后（Issue 6 Gateway 认证解决后）
+
+**已知问题**：
+- Issue 6: Gateway 设备认证（challenge-response）未实现，远程重启无法验证
+- Issue 8: Linux apt 升级路径未实机验证
+
+---
+
+## 已完成：v1.0 Phase 2 — 团队部署架构核心 ✅
+
+**状态**：架构验证通过，GatewayPool 已跑通完整流程
+
+**完成项**：
+- ✅ Schema：teams / members / instances / dags（含 teamId/environment/tags）
+- ✅ API：注册/心跳/团队/成员/DAG（全链路 X-API-Key 认证）
+- ✅ GatewayPool：延迟连接 + 负载选择策略（最少连接数 → 队列任务 → CPU）
+- ✅ DAG 集成：Worker 自动选择实例执行（按 environment 过滤）
+- ✅ Issue 9：实例环境标签（development/staging/production）
+- ✅ Issue 10：心跳负载信息（Redis 存储，TTL 20s）
+
+**测试验证结果**（2026-04-17）：
+1. 创建团队 → 获得 owner API Key
+2. 注册 production 实例 + 心跳 → 负载数据写入 Redis
+3. 创建 DAG（自动关联 teamId）
+4. 触发 DAG → GatewayPool 选择 production 实例 → 执行
+
+**问题**：DAG 执行失败于 Gateway 认证（Issue 6），但 GatewayPool 选择逻辑正确
+
+---
+
+## 当前阶段：v1.0 Phase 3 — 健康检查定时任务（进行中）
 
 ### 目标
 
-通过 Web UI 和 API 实现 OpenClaw Gateway 的自动化重启与版本升级（本地模式优先）。
+实现实例健康检查定时任务，自动清理长时间未心跳的实例，保障 GatewayPool 选择准确性。
 
 ### 任务清单
 
-#### Step 1. 完善 `lifecycle.ts` 已知问题
-- 实现 `backupConfig()`：升级前复制 `~/.openclaw/openclaw.json` + `~/.openclaw/agents/` 到 `~/.openclaw/backups/{timestamp}/`
-- 删除 `openclaw-lifecycle.ts` 底部重复的 FastifyRequest/FastifyReply 类型声明
-- 新增 Linux `apt-get upgrade openclaw` 基础支持
+#### Step 1. BullMQ 定时任务（每分钟）
+- 遍历所有 `status = 'online'` 的 instances
+- 检查 Redis `instance:load:{id}` 是否存在
+- 无负载数据（超时 20s）→ 标记为 `offline`
 
-#### Step 2. 路由挂载 + API 集成验证
-- `server/index.ts` 注册 `openclawLifecycleRoutes`（前缀 `/api`）
-- 验证四个端点：`GET /status`、`GET /update`、`POST /restart`、`POST /upgrade`
+#### Step 2. 连接清理
+- 对已标记 `offline` 且 `lastHeartbeatAt > 5 分钟前` 的实例
+- 调用 `GatewayPool.disconnect(instanceId)` 释放 WebSocket
 
-#### Step 3. CLI 命令实现
-- `clawgate openclaw status` — 显示 Gateway 连接状态、版本、PID
-- `clawgate openclaw restart` — 重启 Gateway（交互式确认）
-- `clawgate openclaw upgrade` — 检查更新 + 执行升级 + 自动重启
-- 复用 `@clawgate/core` 的 `OpenClawLifecycle` 模块，与 `clawgate agents list` 风格一致
+#### Step 3. 告警通知（可选）
+- 实例离线超过 10 分钟 → 发送通知（预留接口）
 
-#### Step 4. Web UI 操作入口
-- 状态卡片：版本、PID、连接状态、运行时间
-- "检查更新"按钮 → 显示当前版本 vs 最新版本
-- "重启"按钮（确认弹窗 + X-Confirm-Action 头）
-- "升级"按钮（确认弹窗 + 进度状态反馈）
-
-#### Step 5. EventBus 集成
-- 重启/升级操作通过 WebSocket EventBus 推送状态事件
-- 事件类型：`openclaw.restarting` / `openclaw.restarted` / `openclaw.upgrading` / `openclaw.upgraded`
-- 前端实时显示操作进度
-
-### 已有代码基础
+### 依赖
+- BullMQ 定时任务已在 `packages/core/src/queue/index.ts` 有基础框架
 
 - `packages/core/src/openclaw/lifecycle.ts` — 核心逻辑骨架已完成（restart/upgrade/getStatus/checkUpdate）
 - `packages/server/src/routes/openclaw-lifecycle.ts` — REST 端点已写（含 auth + 确认头保护）
