@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { mkdirSync, existsSync } from 'fs';
 import * as schema from './schema.js';
 
@@ -13,9 +14,20 @@ export function getDb(): Db {
   return db;
 }
 
+/**
+ * 获取项目根目录（文件所在位置向上回退 4 层：db/index.ts → core → packages → 项目根）
+ */
+function getProjectRoot(): string {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  // packages/core/src/db/index.ts → 回退到项目根
+  return join(__dirname, '../../../..');
+}
+
 export function initDb(dbPath?: string): Db {
-  const path = dbPath ?? join(process.cwd(), 'clawgate.db');
-  const dir = join(path, '..');
+  // 使用固定路径（项目根目录），替代 process.cwd()
+  const path = dbPath ?? join(getProjectRoot(), 'clawgate.db');
+  const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
   const sqlite = new Database(path);
