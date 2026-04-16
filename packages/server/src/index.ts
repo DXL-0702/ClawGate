@@ -16,6 +16,9 @@ import { dagRoutes } from './routes/dags.js';
 import { dagRunRoutes } from './routes/dag-runs.js';
 import { feedbackRoutes } from './routes/feedback.js';
 import { openclawLifecycleRoutes } from './routes/openclaw-lifecycle.js';
+import { instanceRoutes } from './routes/instances.js';
+import { teamRoutes } from './routes/teams.js';
+import { memberRoutes } from './routes/members.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -111,6 +114,9 @@ await app.register(dagRoutes, { prefix: '/api' });
 await app.register(dagRunRoutes, { prefix: '/api' });
 await app.register(feedbackRoutes, { prefix: '/api' });
 await app.register(openclawLifecycleRoutes, { prefix: '/api' });
+await app.register(instanceRoutes, { prefix: '/api' });
+await app.register(teamRoutes, { prefix: '/api' });
+await app.register(memberRoutes, { prefix: '/api' });
 
 try {
   await app.listen({ port: 3000, host: '0.0.0.0' });

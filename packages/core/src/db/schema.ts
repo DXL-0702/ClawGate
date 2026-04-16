@@ -97,3 +97,68 @@ export const dagNodeStates = sqliteTable('dag_node_states', {
   // 复合索引：加速查询指定 run + 特定节点的状态
   runNodeIdx: index('idx_node_states_run_node').on(table.runId, table.nodeId),
 }));
+
+// v1.0 团队部署架构表
+
+export const teams = sqliteTable('teams', {
+  id: text('id').primaryKey(),               // uuid
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),     // URL-friendly 标识
+  ownerId: text('owner_id').notNull(),       // 创建者 member id
+  createdAt: text('created_at').notNull(),
+});
+
+export const members = sqliteTable('members', {
+  id: text('id').primaryKey(),               // uuid
+  teamId: text('team_id').notNull().references(() => teams.id),
+  email: text('email').notNull(),
+  name: text('name'),                        // 显示名称
+  role: text('role', { enum: ['admin', 'member'] }).notNull().default('member'),
+  apiKey: text('api_key').notNull().unique(), // 用于 CLI/API 认证
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  // 索引：通过 API Key 快速查找成员
+  apiKeyIdx: index('idx_members_api_key').on(table.apiKey),
+  // 索引：查询团队成员
+  teamIdIdx: index('idx_members_team_id').on(table.teamId),
+}));
+
+export const instances = sqliteTable('instances', {
+  id: text('id').primaryKey(),               // uuid，由实例注册时生成或分配
+  teamId: text('team_id').notNull().references(() => teams.id),
+  memberId: text('member_id').notNull().references(() => members.id), // 归属成员
+  name: text('name').notNull(),              // 实例别名（如"MacBook-Pro-1"）
+
+  // 环境分组（Issue 9）
+  environment: text('environment', {
+    enum: ['development', 'staging', 'production']
+  }).notNull().default('development'),
+  tags: text('tags'),                        // JSON ["project-a", "ml-team"]
+
+  // 连接配置
+  gatewayUrl: text('gateway_url').notNull(),     // ws://host:port
+  gatewayToken: text('gateway_token').notNull(), // 连接 token
+
+  // 状态
+  status: text('status', {
+    enum: ['online', 'offline', 'error']
+  }).notNull().default('offline'),
+  lastHeartbeatAt: text('last_heartbeat_at'),
+
+  // 资源信息（心跳上报）
+  version: text('version'),                  // OpenClaw 版本
+  platform: text('platform'),                // darwin/linux/win32
+  pid: integer('pid'),                       // 进程 ID
+
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  // 索引：查询团队实例
+  teamIdIdx: index('idx_instances_team_id').on(table.teamId),
+  // 索引：查询成员实例
+  memberIdIdx: index('idx_instances_member_id').on(table.memberId),
+  // 索引：查询在线实例
+  statusIdx: index('idx_instances_status').on(table.status),
+  // 索引：按环境查询（Issue 9）
+  environmentIdx: index('idx_instances_environment').on(table.environment),
+}));
