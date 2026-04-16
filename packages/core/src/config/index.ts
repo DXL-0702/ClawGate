@@ -18,31 +18,26 @@ let config: OpenClawConfig = { ...defaults };
 async function load(): Promise<void> {
   const cfgPath = join(OPENCLAW_DIR, 'openclaw.json');
   if (!existsSync(cfgPath)) return;
+
   try {
     const raw = await readFile(cfgPath, 'utf-8');
-    const data = JSON.parse(raw) as Partial<OpenClawConfig>;
+    const data = JSON.parse(raw) as Record<string, unknown>;
+
+    // 从 openclaw.json 读取 gateway 配置
+    const gateway = (data.gateway ?? {}) as Record<string, unknown>;
+    const gatewayAuth = (gateway.auth ?? {}) as Record<string, unknown>;
+    const gatewayPort = gateway.port as number | undefined;
+
     config = {
-      gatewayUrl: data.gatewayUrl ?? defaults.gatewayUrl,
-      gatewayToken: data.gatewayToken ?? defaults.gatewayToken,
-      defaultModel: data.defaultModel ?? defaults.defaultModel,
-      agentsDir: data.agentsDir ?? defaults.agentsDir,
+      gatewayUrl: gatewayPort
+        ? `ws://127.0.0.1:${gatewayPort}`
+        : defaults.gatewayUrl,
+      gatewayToken: (gatewayAuth.token as string) ?? defaults.gatewayToken,
+      defaultModel: 'claude-sonnet-4-6',
+      agentsDir: join(OPENCLAW_DIR, 'agents'),
     };
   } catch {
     // use defaults on parse error
-  }
-
-  // 从 device-auth.json 读取 gateway token（如果存在）
-  const authPath = join(OPENCLAW_DIR, 'identity', 'device-auth.json');
-  if (existsSync(authPath)) {
-    try {
-      const authRaw = await readFile(authPath, 'utf-8');
-      const authData = JSON.parse(authRaw) as { tokens?: { operator?: { token?: string } } };
-      if (authData.tokens?.operator?.token) {
-        config.gatewayToken = authData.tokens.operator.token;
-      }
-    } catch {
-      // ignore auth parse error
-    }
   }
 }
 

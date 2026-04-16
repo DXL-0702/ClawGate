@@ -14,6 +14,7 @@ import { routeRoutes } from './routes/route.js';
 import { openaiRoutes } from './routes/openai.js';
 import { dagRoutes } from './routes/dags.js';
 import { dagRunRoutes } from './routes/dag-runs.js';
+import { feedbackRoutes } from './routes/feedback.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -39,20 +40,24 @@ await connectRedis();
 const cfg = configReader.get();
 const gateway = new GatewayClient({ url: cfg.gatewayUrl, token: cfg.gatewayToken });
 
+// Connect gateway FIRST before starting Worker
+try {
+  await gateway.connect();
+  app.log.info('OpenClaw Gateway connected successfully');
+} catch (err) {
+  const error = err instanceof Error ? err.message : String(err);
+  app.log.error({ err: error }, 'OpenClaw Gateway connection failed');
+  app.log.warn('Gateway not available — DAG execution will fail');
+}
+
 // 初始化 DAG 执行队列
 initDagQueue();
 
-// 启动 DAG Worker
+// 启动 DAG Worker（在 Gateway 连接之后）
 startDagWorker(gateway);
 app.log.info('DAG Worker started');
-app.decorate('gateway', gateway);
 
-// Connect gateway once at startup; reconnect loop handles drops automatically
-try {
-  await gateway.connect();
-} catch {
-  app.log.warn('OpenClaw Gateway not available at startup — will retry automatically');
-}
+app.decorate('gateway', gateway);
 
 // 将 Gateway 推送事件桥接到 WebSocket 广播
 const GATEWAY_EVENTS = ['session.start', 'session.end', 'session.message', 'session.failed'];
@@ -70,6 +75,7 @@ await app.register(routeRoutes, { prefix: '/api' });
 await app.register(openaiRoutes, { prefix: '/v1' });
 await app.register(dagRoutes, { prefix: '/api' });
 await app.register(dagRunRoutes, { prefix: '/api' });
+await app.register(feedbackRoutes, { prefix: '/api' });
 
 try {
   await app.listen({ port: 3000, host: '0.0.0.0' });
