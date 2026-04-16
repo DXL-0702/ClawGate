@@ -40,9 +40,11 @@
 - 支持自定义 payload 映射到节点输入
 - Webhook URL 格式：`/api/dags/:id/webhook?token=...`
 
-#### B9. L4 反馈接口（Issue 4）
-- `POST /api/route/feedback` 端点
-- 用户反馈信号写入向量库
+#### B9. L4 反馈接口 ✅ 已完成
+- `POST /api/route/feedback` 端点（Node.js）
+- `GET /api/route/feedback/stats` 统计查询
+- Python L4 反馈闭环逻辑，`NEGATIVE_THRESHOLD = 3` 触发降级
+- 异步写入 Qdrant 向量库，供 L2 后续检索命中
 
 ### 技术思路
 

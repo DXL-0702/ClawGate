@@ -17,7 +17,7 @@ OLLAMA_URL     = os.getenv("OLLAMA_URL",    "http://127.0.0.1:11434")
 L2_THRESHOLD   = float(os.getenv("L2_THRESHOLD", "0.75"))
 SIMPLE_MODEL   = os.getenv("SIMPLE_MODEL",  "qwen2.5:7b")
 COMPLEX_MODEL  = os.getenv("COMPLEX_MODEL", "claude-sonnet-4-6")
-CLASSIFY_MODEL = os.getenv("CLASSIFY_MODEL","qwen2.5:3b")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 # ── 单例 ────────────────────────────────────────────────────────
 l2: L2SemanticCache
@@ -28,10 +28,13 @@ l4: L4FeedbackLoop
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global l2, l3, l4
-    l2 = L2SemanticCache(qdrant_url=QDRANT_URL, threshold=L2_THRESHOLD)
+    l2 = L2SemanticCache(
+        qdrant_url=QDRANT_URL,
+        ollama_url=OLLAMA_URL,
+        threshold=L2_THRESHOLD,
+    )
     l3 = L3OllamaClassifier(
         ollama_url=OLLAMA_URL,
-        classify_model=CLASSIFY_MODEL,
         simple_model=SIMPLE_MODEL,
         complex_model=COMPLEX_MODEL,
     )
