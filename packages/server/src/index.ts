@@ -15,6 +15,7 @@ import { openaiRoutes } from './routes/openai.js';
 import { dagRoutes } from './routes/dags.js';
 import { dagRunRoutes } from './routes/dag-runs.js';
 import { feedbackRoutes } from './routes/feedback.js';
+import { openclawLifecycleRoutes } from './routes/openclaw-lifecycle.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -109,6 +110,7 @@ await app.register(openaiRoutes, { prefix: '/v1' });
 await app.register(dagRoutes, { prefix: '/api' });
 await app.register(dagRunRoutes, { prefix: '/api' });
 await app.register(feedbackRoutes, { prefix: '/api' });
+await app.register(openclawLifecycleRoutes, { prefix: '/api' });
 
 try {
   await app.listen({ port: 3000, host: '0.0.0.0' });

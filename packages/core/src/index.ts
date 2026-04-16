@@ -39,3 +39,11 @@ export {
   startDagWorker,
   stopDagWorker,
 } from './dag/executor.js';
+
+// OpenClaw 生命周期管理
+export { OpenClawLifecycle } from './openclaw/lifecycle.js';
+export type {
+  LifecycleOptions,
+  LifecycleResult,
+  OpenClawStatus,
+} from './openclaw/lifecycle.js';

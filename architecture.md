@@ -307,7 +307,46 @@ ws://127.0.0.1:18789
 - SQLite (not suitable for high concurrency)
 - No horizontal scaling
 
-### 9.2 Future Enhancements (v1.0+)
+### 9.2 Team Deployment Architecture (v1.0)
+
+ClawGate adopts a **centralized server + distributed OpenClaw** model for team scenarios:
+
+```mermaid
+graph TB
+    subgraph "Central Server (Team Shared)"
+        CG[ClawGate Full Stack]
+        CG_Node[Node.js API + Web UI]
+        CG_Rust[Rust Traffic Layer]
+        CG_Python[Python Intent Service]
+        CG_Redis[(Redis)]
+        CG_SQLite[(SQLite)]
+        CG_Qdrant[(Qdrant)]
+    end
+
+    subgraph "Team Members"
+        M1[Member A<br/>OpenClaw Local]
+        M2[Member B<br/>OpenClaw Local]
+        M3[Member C<br/>OpenClaw Remote]
+    end
+
+    M1 -- "Register + WebSocket" --> CG
+    M2 -- "Register + WebSocket" --> CG
+    M3 -- "Register + SSH" --> CG
+```
+
+**Key mechanisms**:
+- **Instance Registration API**: Each member's OpenClaw registers via HTTP, heartbeat keepalive
+- **Multi-Instance Connection Pool**: ClawGate maintains multiple WebSocket connections to OpenClaw Gateways
+- **Member Authentication**: JWT/API Key, role-based access (admin/member)
+- **Shared Intelligence**: L2/L4 vector DB shared across all members, accelerating routing evolution
+- **Centralized Cost Tracking**: Unified budget control and per-member usage breakdown
+
+### 9.3 ClawGate Self-Update
+
+- **Docker deployment (primary)**: Watchtower monitors image updates, auto pull + restart (seconds-level downtime)
+- **Bare-metal deployment**: `clawgate self-update` CLI command, similar to `rustup update`
+
+### 9.4 Future Enhancements (v1.0+)
 
 - Multi-instance OpenClaw management
 - PostgreSQL migration for high concurrency
@@ -390,6 +429,6 @@ ws://127.0.0.1:18789
 
 ---
 
-**Last Updated**: 2026-04-15
-**Version**: v0.3 (Intelligent Routing Core + OpenAI-Compatible API)
-**Validation**: L1 cache verified (100% hit rate, 5s→2ms). L2/L3 code ready, deferred to v0.5. L4 API pending.
+**Last Updated**: 2026-04-16
+**Version**: v0.5 (DAG Workflow Wave 1-2 done, OpenClaw Lifecycle Wave 2.5 in progress)
+**Next**: Wave 2.5 (OpenClaw restart/upgrade via Web UI) → Wave 3 (Multi-node DAG) → v1.0 (Team deployment)

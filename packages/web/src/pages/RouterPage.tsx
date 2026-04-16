@@ -38,7 +38,7 @@ const LAYER_COLOR: Record<string, string> = {
   L1: 'bg-green-900 text-green-300',
   L2: 'bg-blue-900 text-blue-300',
   L3: 'bg-yellow-900 text-yellow-300',
-  L4: 'bg-purple-900 text-purple-300',
+  L4: 'bg-orange-900 text-orange-300',
 };
 
 export default function RouterPage() {

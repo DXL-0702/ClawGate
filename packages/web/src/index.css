@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* ===== 方案A: Linear 风格 — 紫蓝神秘主题 ===== */
+/* ===== 方案A: Linear 风格 — 亮橙活力主题 ===== */
 
 @theme {
   /* 背景层级（极深灰黑，营造沉浸感）*/
@@ -10,11 +10,11 @@
   --color-bg-hover: #27272a;
   --color-bg-pressed: #3f3f46;
 
-  /* 品牌强调色（紫罗兰 - AI感）*/
-  --color-accent: #7c3aed;
-  --color-accent-hover: #8b5cf6;
-  --color-accent-subtle: rgba(124, 58, 237, 0.1);
-  --color-accent-glow: rgba(124, 58, 237, 0.15);
+  /* 品牌强调色（亮橙色 - 活力/警示）*/
+  --color-accent: #f97316;
+  --color-accent-hover: #fb923c;
+  --color-accent-subtle: rgba(249, 115, 22, 0.1);
+  --color-accent-glow: rgba(249, 115, 22, 0.15);
 
   /* 功能语义色（高饱和度确保可读）*/
   --color-success: #10b981;
@@ -62,12 +62,12 @@
 
 /* 发光效果（Glow）- 状态指示 */
 .glow-accent {
-  box-shadow: 0 0 20px rgba(124, 58, 237, 0.15);
+  box-shadow: 0 0 20px rgba(249, 115, 22, 0.15);
 }
 
 .glow-accent-strong {
-  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.5),
-              0 0 20px rgba(124, 58, 237, 0.3);
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.5),
+              0 0 20px rgba(249, 115, 22, 0.3);
 }
 
 .glow-success {
@@ -90,10 +90,10 @@
 /* 脉冲动画 - 运行中状态 */
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.5), 0 0 20px rgba(124, 58, 237, 0.3);
+    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.5), 0 0 20px rgba(249, 115, 22, 0.3);
   }
   50% {
-    box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.7), 0 0 30px rgba(124, 58, 237, 0.5);
+    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.7), 0 0 30px rgba(249, 115, 22, 0.5);
   }
 }
 
@@ -103,7 +103,7 @@
 
 /* 渐变文字 - 标题点缀 */
 .text-gradient {
-  background: linear-gradient(to right, #7c3aed, #a78bfa);
+  background: linear-gradient(to right, #f97316, #fdba74);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }

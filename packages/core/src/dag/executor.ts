@@ -14,9 +14,21 @@ export function startDagWorker(gateway: GatewayClient): Worker {
   dagWorker = new Worker<DagExecutionJob>(
     'dag-execution',
     async (job: Job<DagExecutionJob>) => {
-      const { runId, dagId, definition, triggeredBy = 'manual' } = job.data;
+      let { runId, dagId, definition, triggeredBy = 'manual' } = job.data;
       const db = getDb();
       const now = new Date().toISOString();
+
+      // Cron 触发时 runId 为空（JobScheduler 模板限制），需在此处创建 dag_runs 记录
+      if (!runId && triggeredBy === 'cron') {
+        runId = crypto.randomUUID();
+        await db.insert(schema.dagRuns).values({
+          id: runId,
+          dagId,
+          status: 'pending',
+          triggeredBy: 'cron',
+          createdAt: now,
+        });
+      }
 
       console.log(`[DAG Worker] Starting run ${runId} for DAG ${dagId} (triggeredBy: ${triggeredBy})`);
 

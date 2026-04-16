@@ -4,6 +4,7 @@ import { agentsCommand } from '../commands/agents.js';
 import { sessionsCommand } from '../commands/sessions.js';
 import { statusCommand } from '../commands/status.js';
 import { initCommand } from '../commands/init.js';
+import { openclawCommand } from '../commands/openclaw.js';
 
 const program = new Command();
 
@@ -16,5 +17,6 @@ program.addCommand(initCommand);
 program.addCommand(agentsCommand);
 program.addCommand(sessionsCommand);
 program.addCommand(statusCommand);
+program.addCommand(openclawCommand);
 
 program.parse();
