@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { getDb, schema, getDagQueue, addDagCronJob, removeDagCronJob, updateDagCronJob } from '@clawgate/core';
 import { eq, and } from 'drizzle-orm';
 
@@ -35,6 +35,26 @@ function isValidCron(expression: string): boolean {
   const parts = expression.trim().split(/\s+/);
   if (parts.length !== 5) return false;
   return true;
+}
+
+// 认证辅助：从请求获取当前成员
+async function authenticateMember(req: FastifyRequest) {
+  const apiKey = req.headers['x-api-key'] as string | undefined;
+  if (!apiKey) {
+    throw new Error('Missing X-API-Key header');
+  }
+
+  const db = getDb();
+  const [member] = await db
+    .select()
+    .from(schema.members)
+    .where(eq(schema.members.apiKey, apiKey));
+
+  if (!member) {
+    throw new Error('Invalid API key');
+  }
+
+  return member;
 }
 
 export const dagRoutes: FastifyPluginAsync = async (app) => {
@@ -83,70 +103,77 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
     };
   });
 
-  // POST /api/dags - 创建
+  // POST /api/dags - 创建（需要 X-API-Key 认证）
   app.post<{ Body: CreateDagBody }>('/dags', async (req, reply) => {
-    const { name, definition, trigger = 'manual', cronExpression, enabled = true } = req.body;
+    try {
+      const member = await authenticateMember(req);
+      const { name, definition, trigger = 'manual', cronExpression, enabled = true } = req.body;
 
-    if (!name || !name.trim()) {
-      return reply.status(400).send({ error: 'name is required' });
-    }
-
-    if (!definition || !definition.nodes || definition.nodes.length === 0) {
-      return reply.status(400).send({ error: 'definition with at least one node is required' });
-    }
-
-    // Week 1: 验证单节点配置
-    const node = definition.nodes[0];
-    if (!node.agentId || !node.prompt) {
-      return reply.status(400).send({ error: 'node must have agentId and prompt' });
-    }
-
-    // Cron 表达式校验
-    if (trigger === 'cron' && cronExpression) {
-      if (!isValidCron(cronExpression)) {
-        return reply.status(400).send({ error: 'Invalid cron expression. Format: "* * * * *" (minute hour day month weekday)' });
+      if (!name || !name.trim()) {
+        return reply.status(400).send({ error: 'name is required' });
       }
-    }
 
-    const db = getDb();
-    const now = new Date().toISOString();
-    const id = crypto.randomUUID();
-
-    // Webhook token 生成
-    const webhookToken = trigger === 'webhook' ? crypto.randomUUID() : null;
-
-    await db.insert(schema.dags).values({
-      id,
-      name: name.trim(),
-      definition: JSON.stringify(definition),
-      trigger,
-      cronExpression: cronExpression || null,
-      enabled: enabled,
-      webhookToken,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    // 如果启用了 Cron，立即注册定时任务
-    if (trigger === 'cron' && enabled && cronExpression) {
-      try {
-        await addDagCronJob(id, cronExpression, definition);
-      } catch (err) {
-        app.log.warn({ err, dagId: id }, 'Failed to register DAG cron job');
-        // 不阻塞创建，记录警告即可
+      if (!definition || !definition.nodes || definition.nodes.length === 0) {
+        return reply.status(400).send({ error: 'definition with at least one node is required' });
       }
-    }
 
-    return {
-      id,
-      name: name.trim(),
-      definition,
-      trigger,
-      cronExpression,
-      enabled: !!enabled,
-      webhookToken,
-      createdAt: now,
-    };
+      // Week 1: 验证单节点配置
+      const node = definition.nodes[0];
+      if (!node.agentId || !node.prompt) {
+        return reply.status(400).send({ error: 'node must have agentId and prompt' });
+      }
+
+      // Cron 表达式校验
+      if (trigger === 'cron' && cronExpression) {
+        if (!isValidCron(cronExpression)) {
+          return reply.status(400).send({ error: 'Invalid cron expression. Format: "* * * * *" (minute hour day month weekday)' });
+        }
+      }
+
+      const db = getDb();
+      const now = new Date().toISOString();
+      const id = crypto.randomUUID();
+
+      // Webhook token 生成
+      const webhookToken = trigger === 'webhook' ? crypto.randomUUID() : null;
+
+      await db.insert(schema.dags).values({
+        id,
+        name: name.trim(),
+        teamId: member.teamId,
+        definition: JSON.stringify(definition),
+        trigger,
+        cronExpression: cronExpression || null,
+        enabled: enabled,
+        webhookToken,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // 如果启用了 Cron，立即注册定时任务
+      if (trigger === 'cron' && enabled && cronExpression) {
+        try {
+          await addDagCronJob(id, cronExpression, definition);
+        } catch (err) {
+          app.log.warn({ err, dagId: id }, 'Failed to register DAG cron job');
+          // 不阻塞创建，记录警告即可
+        }
+      }
+
+      return {
+        id,
+        name: name.trim(),
+        definition,
+        trigger,
+        cronExpression,
+        enabled: !!enabled,
+        webhookToken,
+        createdAt: now,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to create DAG';
+      return reply.status(401).send({ error: msg });
+    }
   });
 
   // PATCH /api/dags/:id - 更新（包括触发器配置）

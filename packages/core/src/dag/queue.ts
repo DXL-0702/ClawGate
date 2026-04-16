@@ -7,6 +7,8 @@ export interface DagExecutionJob {
   runId: string;
   dagId: string;
   triggeredBy: 'manual' | 'cron' | 'webhook';
+  /** 指定运行环境（用于 GatewayPool 选择实例） */
+  environment?: 'development' | 'staging' | 'production';
   definition: {
     nodes: Array<{
       id: string;

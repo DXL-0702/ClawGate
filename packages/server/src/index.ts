@@ -57,9 +57,9 @@ try {
 // 初始化 DAG 执行队列
 initDagQueue();
 
-// 启动 DAG Worker（在 Gateway 连接之后）
-startDagWorker(gateway);
-app.log.info('DAG Worker started');
+// 启动 DAG Worker（使用 GatewayPool 动态选择实例）
+startDagWorker();
+app.log.info('DAG Worker started with GatewayPool');
 
 // 启动时注册所有启用的 Cron DAG
 import { getDb as getDbForCron, schema as schemaForCron, updateDagCronJob } from '@clawgate/core';

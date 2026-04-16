@@ -47,6 +47,7 @@ export const routingLogs = sqliteTable('routing_logs', {
 export const dags = sqliteTable('dags', {
   id: text('id').primaryKey(),              // uuid
   name: text('name').notNull(),
+  teamId: text('team_id').notNull().references(() => teams.id), // 所属团队
   definition: text('definition').notNull(), // JSON: { nodes: [], edges: [] }
   // v0.5 Wave 2: 触发器配置
   trigger: text('trigger', { enum: ['manual', 'cron', 'webhook'] })
@@ -60,6 +61,8 @@ export const dags = sqliteTable('dags', {
 }, (table) => ({
   // 索引：快速查询启用的 Cron DAG
   triggerEnabledIdx: index('idx_dags_trigger_enabled').on(table.trigger, table.enabled),
+  // 索引：查询团队 DAG
+  dagTeamIdIdx: index('idx_dags_team_id').on(table.teamId),
 }));
 
 export const dagRuns = sqliteTable('dag_runs', {

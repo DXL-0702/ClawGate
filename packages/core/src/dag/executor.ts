@@ -3,18 +3,22 @@ import { getBullMqRedis } from '../redis/index.js';
 import { getDb, schema } from '../db/index.js';
 import { eq, and } from 'drizzle-orm';
 import { executeAgentNode } from './gateway-executor.js';
-import { GatewayClient } from '../gateway/index.js';
+import { getGatewayPool } from '../gateway/pool.js';
 import type { DagExecutionJob } from './queue.js';
 
 let dagWorker: Worker | null = null;
 
-export function startDagWorker(gateway: GatewayClient): Worker {
+/**
+ * 启动 DAG Worker
+ * 使用 GatewayPool 动态选择实例，替代固定的 GatewayClient
+ */
+export function startDagWorker(): Worker {
   const connection = getBullMqRedis();
 
   dagWorker = new Worker<DagExecutionJob>(
     'dag-execution',
     async (job: Job<DagExecutionJob>) => {
-      let { runId, dagId, definition, triggeredBy = 'manual' } = job.data;
+      let { runId, dagId, definition, triggeredBy = 'manual', environment = 'production' } = job.data;
       const db = getDb();
       const now = new Date().toISOString();
 
@@ -30,7 +34,20 @@ export function startDagWorker(gateway: GatewayClient): Worker {
         });
       }
 
-      console.log(`[DAG Worker] Starting run ${runId} for DAG ${dagId} (triggeredBy: ${triggeredBy})`);
+      console.log(`[DAG Worker] Starting run ${runId} for DAG ${dagId} (triggeredBy: ${triggeredBy}, env: ${environment})`);
+
+      // 获取 DAG 所属团队（用于 GatewayPool 选择实例）
+      const [dag] = await db
+        .select({ teamId: schema.dags.teamId })
+        .from(schema.dags)
+        .where(eq(schema.dags.id, dagId));
+
+      if (!dag) {
+        throw new Error(`DAG ${dagId} not found`);
+      }
+
+      // 获取 GatewayPool 实例
+      const pool = getGatewayPool();
 
       try {
         // 1. 更新 dag_runs 状态为 running
@@ -63,9 +80,18 @@ export function startDagWorker(gateway: GatewayClient): Worker {
             eq(schema.dagNodeStates.nodeId, node.id)
           ));
 
-        console.log(`[DAG Worker] Executing node ${node.id} with agent ${node.agentId}`);
+        // 4. 使用 GatewayPool 选择实例并执行
+        console.log(`[DAG Worker] Selecting instance for team ${dag.teamId}, env ${environment}`);
 
-        // 4. 执行节点
+        const instanceId = await pool.selectForTask(dag.teamId, { environment });
+        if (!instanceId) {
+          throw new Error(`No available instance for environment ${environment}. Please register an instance or check health.`);
+        }
+
+        console.log(`[DAG Worker] Selected instance ${instanceId}, executing node ${node.id} with agent ${node.agentId}`);
+
+        const gateway = await pool.getConnection(instanceId);
+
         const result = await executeAgentNode(gateway, {
           agentId: node.agentId,
           prompt: node.prompt,

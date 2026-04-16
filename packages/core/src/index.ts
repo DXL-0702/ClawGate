@@ -47,3 +47,14 @@ export type {
   LifecycleResult,
   OpenClawStatus,
 } from './openclaw/lifecycle.js';
+
+// GatewayPool 多实例连接池（团队部署）
+export {
+  GatewayPool,
+  getGatewayPool,
+  resetGatewayPool,
+} from './gateway/pool.js';
+export type {
+  SelectOptions,
+  HealthResult,
+} from './gateway/pool.js';
