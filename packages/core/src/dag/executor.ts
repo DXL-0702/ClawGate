@@ -1,21 +1,379 @@
 import { Worker, Job } from 'bullmq';
 import { getBullMqRedis } from '../redis/index.js';
 import { getDb, schema } from '../db/index.js';
+import type { Db } from '../db/index.js';
 import { eq, and } from 'drizzle-orm';
 import { executeAgentNode, executeAgentNodesParallel } from './gateway-executor.js';
 import { getGatewayPool } from '../gateway/pool.js';
 import { GatewayClient } from '../gateway/index.js';
-import type { DagExecutionJob } from './queue.js';
+import type { DagExecutionJob, DagNodeDef } from './queue.js';
 import { topologicalSort } from './topo-sort.js';
 import { substituteVariables } from './variable-subst.js';
+import { evaluateConditionToString } from './condition-eval.js';
+import { shouldSkipNode } from './skip-logic.js';
 import { PERSONAL_TEAM_ID } from '../auth/index.js';
 import { configReader } from '../config/index.js';
 
 let dagWorker: Worker | null = null;
 
+// ── 核心执行逻辑（可独立测试） ──────────────────────────────────
+
+export interface DagRunParams {
+  runId: string;
+  definition: {
+    nodes: DagNodeDef[];
+    edges?: Array<{ id: string; source: string; target: string; sourceHandle?: string | null; targetHandle?: string | null }>;
+  };
+  gateway: GatewayClient;
+  db?: Db;
+}
+
+export interface DagRunResult {
+  runId: string;
+  status: 'completed' | 'failed';
+  failedNodeId?: string;
+  output?: string | null;
+}
+
+/**
+ * DAG 核心执行函数
+ * 拓扑排序 → 分批执行 → 变量替换 → 状态持久化
+ *
+ * 从 Worker 回调中提取，支持独立测试（传入 Mock GatewayClient + 测试 DB）。
+ */
+export async function executeDagRun(params: DagRunParams): Promise<DagRunResult> {
+  const { runId, definition, gateway } = params;
+  const db = params.db ?? getDb();
+  const now = new Date().toISOString();
+
+  // 1. 更新 dag_runs 状态为 running
+  await db
+    .update(schema.dagRuns)
+    .set({ status: 'running', startedAt: now })
+    .where(eq(schema.dagRuns.id, runId));
+
+  // 2. 初始化所有节点状态为 pending
+  for (const node of definition.nodes) {
+    await db.insert(schema.dagNodeStates).values({
+      runId,
+      nodeId: node.id,
+      status: 'pending',
+      createdAt: now,
+    });
+  }
+
+  // 3. 拓扑排序，检测循环依赖
+  let batches: string[][];
+  const topoNodes = definition.nodes.map((n) => ({ id: n.id }));
+  const topoEdges = (definition.edges ?? []).map((e) => ({
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    sourceHandle: e.sourceHandle ?? undefined,
+    targetHandle: e.targetHandle ?? undefined,
+  }));
+  try {
+    batches = topologicalSort(topoNodes, topoEdges);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Topology error';
+    const errorMsg = `DAG topology error: ${msg}`;
+    await db
+      .update(schema.dagRuns)
+      .set({ status: 'failed', error: errorMsg, endedAt: new Date().toISOString() })
+      .where(eq(schema.dagRuns.id, runId));
+    return { runId, status: 'failed', output: null };
+  }
+
+  console.log(`[DAG Worker] Execution plan: ${batches.map((b) => `[${b.join(',')}]`).join(' → ')}`);
+
+  // 4. 按批次执行
+  const context: Record<string, string> = {};
+  let runFailed = false;
+  let failedNodeId: string | undefined;
+  let failedError: string | undefined;
+  const skippedNodes = new Set<string>();
+  const conditionResults: Record<string, string> = {};
+
+  const nodeMap = new Map(definition.nodes.map((n) => [n.id, n]));
+  const edges = definition.edges ?? [];
+
+  for (const batch of batches) {
+    if (runFailed) {
+      const skippedAt = new Date().toISOString();
+      for (const nodeId of batch) {
+        skippedNodes.add(nodeId);
+        await db
+          .update(schema.dagNodeStates)
+          .set({ status: 'skipped', endedAt: skippedAt })
+          .where(and(
+            eq(schema.dagNodeStates.runId, runId),
+            eq(schema.dagNodeStates.nodeId, nodeId)
+          ));
+      }
+      continue;
+    }
+
+    // 分类本批次节点：先过滤 skip，再分离 condition / agent
+    const activeNodes: string[] = [];
+    const skippedInBatch: string[] = [];
+
+    for (const nodeId of batch) {
+      if (shouldSkipNode(nodeId, edges, skippedNodes, conditionResults, nodeMap)) {
+        skippedInBatch.push(nodeId);
+      } else {
+        activeNodes.push(nodeId);
+      }
+    }
+
+    // 标记跳过的节点
+    if (skippedInBatch.length > 0) {
+      const skippedAt = new Date().toISOString();
+      for (const nodeId of skippedInBatch) {
+        skippedNodes.add(nodeId);
+        await db
+          .update(schema.dagNodeStates)
+          .set({ status: 'skipped', endedAt: skippedAt })
+          .where(and(
+            eq(schema.dagNodeStates.runId, runId),
+            eq(schema.dagNodeStates.nodeId, nodeId)
+          ));
+      }
+    }
+
+    if (activeNodes.length === 0) continue;
+
+    // 同步处理 condition / delay 节点（不需要 Gateway）
+    const conditionNodeIds: string[] = [];
+    const delayNodeIds: string[] = [];
+    const agentNodeIds: string[] = [];
+
+    for (const nodeId of activeNodes) {
+      const node = nodeMap.get(nodeId)!;
+      if (node.type === 'condition') {
+        conditionNodeIds.push(nodeId);
+      } else if (node.type === 'delay') {
+        delayNodeIds.push(nodeId);
+      } else {
+        agentNodeIds.push(nodeId);
+      }
+    }
+
+    // 执行条件节点
+    for (const nodeId of conditionNodeIds) {
+      const node = nodeMap.get(nodeId)!;
+      if (node.type !== 'condition') continue;
+
+      const condStartedAt = new Date().toISOString();
+      await db
+        .update(schema.dagNodeStates)
+        .set({ status: 'running', startedAt: condStartedAt })
+        .where(and(
+          eq(schema.dagNodeStates.runId, runId),
+          eq(schema.dagNodeStates.nodeId, nodeId)
+        ));
+
+      const result = evaluateConditionToString(node.expression, context);
+      context[nodeId] = result;
+      conditionResults[nodeId] = result;
+
+      const condEndedAt = new Date().toISOString();
+      await db
+        .update(schema.dagNodeStates)
+        .set({ status: 'completed', output: result, endedAt: condEndedAt })
+        .where(and(
+          eq(schema.dagNodeStates.runId, runId),
+          eq(schema.dagNodeStates.nodeId, nodeId)
+        ));
+
+      console.log(`[DAG Worker] Condition node ${nodeId} evaluated to "${result}"`);
+    }
+
+    // 执行 delay 节点
+    for (const nodeId of delayNodeIds) {
+      const node = nodeMap.get(nodeId)!;
+      if (node.type !== 'delay') continue;
+
+      const delayStartedAt = new Date().toISOString();
+      await db
+        .update(schema.dagNodeStates)
+        .set({ status: 'running', startedAt: delayStartedAt })
+        .where(and(
+          eq(schema.dagNodeStates.runId, runId),
+          eq(schema.dagNodeStates.nodeId, nodeId)
+        ));
+
+      const seconds = Math.max(0, node.delaySeconds);
+      console.log(`[DAG Worker] Delay node ${nodeId} waiting ${seconds}s`);
+
+      if (seconds > 0) {
+        await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+      }
+
+      const output = `${seconds}`;
+      context[nodeId] = output;
+
+      const delayEndedAt = new Date().toISOString();
+      await db
+        .update(schema.dagNodeStates)
+        .set({ status: 'completed', output, endedAt: delayEndedAt })
+        .where(and(
+          eq(schema.dagNodeStates.runId, runId),
+          eq(schema.dagNodeStates.nodeId, nodeId)
+        ));
+
+      console.log(`[DAG Worker] Delay node ${nodeId} completed (${seconds}s)`);
+    }
+
+    // 无 agent 节点需执行 → 跳到下一批次
+    if (agentNodeIds.length === 0) continue;
+
+    // 执行 agent 节点
+    const batchStartedAt = new Date().toISOString();
+    for (const nodeId of agentNodeIds) {
+      await db
+        .update(schema.dagNodeStates)
+        .set({ status: 'running', startedAt: batchStartedAt })
+        .where(and(
+          eq(schema.dagNodeStates.runId, runId),
+          eq(schema.dagNodeStates.nodeId, nodeId)
+        ));
+    }
+
+    if (agentNodeIds.length === 1) {
+      const nodeId = agentNodeIds[0]!;
+      const node = nodeMap.get(nodeId)!;
+      if (node.type !== 'agent') continue;
+
+      const resolvedPrompt = substituteVariables(node.prompt, context);
+
+      console.log(`[DAG Worker] Executing node ${nodeId} (agent: ${node.agentId})`);
+
+      const result = await executeAgentNode(gateway, {
+        agentId: node.agentId,
+        prompt: resolvedPrompt,
+        timeoutMs: 60000,
+      });
+
+      const nodeEndedAt = new Date().toISOString();
+
+      if (result.success) {
+        context[nodeId] = result.output;
+        await db
+          .update(schema.dagNodeStates)
+          .set({ status: 'completed', output: result.output, endedAt: nodeEndedAt })
+          .where(and(
+            eq(schema.dagNodeStates.runId, runId),
+            eq(schema.dagNodeStates.nodeId, nodeId)
+          ));
+        console.log(`[DAG Worker] Node ${nodeId} completed`);
+      } else {
+        runFailed = true;
+        failedNodeId = nodeId;
+        failedError = result.error;
+        await db
+          .update(schema.dagNodeStates)
+          .set({ status: 'failed', error: result.error, endedAt: nodeEndedAt })
+          .where(and(
+            eq(schema.dagNodeStates.runId, runId),
+            eq(schema.dagNodeStates.nodeId, nodeId)
+          ));
+        console.error(`[DAG Worker] Node ${nodeId} failed: ${result.error}`);
+      }
+    } else {
+      const parallelNodes = agentNodeIds
+        .map((nodeId) => {
+          const node = nodeMap.get(nodeId)!;
+          if (node.type !== 'agent') return null;
+          return {
+            nodeId,
+            agentId: node.agentId,
+            prompt: substituteVariables(node.prompt, context),
+          };
+        })
+        .filter((n): n is NonNullable<typeof n> => n !== null);
+
+      console.log(`[DAG Worker] Executing parallel batch: [${agentNodeIds.join(', ')}]`);
+
+      const results = await executeAgentNodesParallel(gateway, parallelNodes, 60000);
+      const batchEndedAt = new Date().toISOString();
+
+      for (const nodeId of agentNodeIds) {
+        const result = results.get(nodeId);
+        if (!result) continue;
+
+        if (result.success) {
+          context[nodeId] = result.output;
+          await db
+            .update(schema.dagNodeStates)
+            .set({ status: 'completed', output: result.output, endedAt: batchEndedAt })
+            .where(and(
+              eq(schema.dagNodeStates.runId, runId),
+              eq(schema.dagNodeStates.nodeId, nodeId)
+            ));
+        } else {
+          if (!runFailed) {
+            runFailed = true;
+            failedNodeId = nodeId;
+            failedError = result.error;
+          }
+          await db
+            .update(schema.dagNodeStates)
+            .set({ status: 'failed', error: result.error, endedAt: batchEndedAt })
+            .where(and(
+              eq(schema.dagNodeStates.runId, runId),
+              eq(schema.dagNodeStates.nodeId, nodeId)
+            ));
+          console.error(`[DAG Worker] Node ${nodeId} failed: ${result.error}`);
+        }
+      }
+    }
+  }
+
+  const runEndedAt = new Date().toISOString();
+
+  if (runFailed) {
+    await db
+      .update(schema.dagRuns)
+      .set({
+        status: 'failed',
+        error: `Node "${failedNodeId}" failed: ${failedError}`,
+        endedAt: runEndedAt,
+      })
+      .where(eq(schema.dagRuns.id, runId));
+
+    return { runId, status: 'failed', failedNodeId };
+  }
+
+  // 最终输出：取最后一个 completed 且非 condition/delay 的节点输出
+  let finalOutput: string | null = null;
+  for (let i = batches.length - 1; i >= 0; i--) {
+    const batch = batches[i]!;
+    for (let j = batch.length - 1; j >= 0; j--) {
+      const nodeId = batch[j]!;
+      const node = nodeMap.get(nodeId);
+      const nodeType = node?.type;
+      if (nodeType !== 'condition' && nodeType !== 'delay' && !skippedNodes.has(nodeId) && context[nodeId] !== undefined) {
+        finalOutput = context[nodeId] ?? null;
+        break;
+      }
+    }
+    if (finalOutput !== null) break;
+  }
+
+  await db
+    .update(schema.dagRuns)
+    .set({ status: 'completed', output: finalOutput, endedAt: runEndedAt })
+    .where(eq(schema.dagRuns.id, runId));
+
+  console.log(`[DAG Worker] Run ${runId} completed (${definition.nodes.length} nodes)`);
+  return { runId, status: 'completed', output: finalOutput };
+}
+
+// ── BullMQ Worker（薄封装） ─────────────────────────────────────
+
 /**
  * 启动 DAG Worker
- * Wave 3: 支持多节点拓扑排序执行（线性链 + 并行批次 + 变量替换）
+ * 职责：Gateway 获取 + executeDagRun() 调用 + 连接清理
  */
 export function startDagWorker(): Worker {
   dagWorker = new Worker<DagExecutionJob>(
@@ -56,7 +414,6 @@ export function startDagWorker(): Worker {
       let gateway: GatewayClient;
 
       if (isPersonalMode) {
-        // 个人模式：直连本地 OpenClaw Gateway
         const cfg = configReader.get();
         console.log(`[DAG Worker] Personal mode: connecting to local Gateway ${cfg.gatewayUrl}`);
 
@@ -73,7 +430,6 @@ export function startDagWorker(): Worker {
           throw new Error(`Failed to connect to local OpenClaw Gateway: ${msg}`);
         }
       } else {
-        // 团队模式：使用 GatewayPool 选择最优实例
         const pool = getGatewayPool();
         const instanceId = await pool.selectForTask(dag.teamId!, { environment });
         if (!instanceId) {
@@ -86,181 +442,8 @@ export function startDagWorker(): Worker {
       }
 
       try {
-        // 1. 更新 dag_runs 状态为 running
-        await db
-          .update(schema.dagRuns)
-          .set({ status: 'running', startedAt: now })
-          .where(eq(schema.dagRuns.id, runId));
-
-        // 2. 初始化所有节点状态为 pending
-        for (const node of definition.nodes) {
-          await db.insert(schema.dagNodeStates).values({
-            runId,
-            nodeId: node.id,
-            status: 'pending',
-            createdAt: now,
-          });
-        }
-
-        // 3. 拓扑排序，检测循环依赖
-        let batches: string[][];
-        try {
-          batches = topologicalSort(definition.nodes, definition.edges ?? []);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Topology error';
-          throw new Error(`DAG topology error: ${msg}`);
-        }
-
-        console.log(`[DAG Worker] Execution plan: ${batches.map((b) => `[${b.join(',')}]`).join(' → ')}`);
-
-        // 5. 按批次执行
-        const context: Record<string, string> = {};
-        let runFailed = false;
-        let failedNodeId: string | undefined;
-        let failedError: string | undefined;
-
-        const nodeMap = new Map(definition.nodes.map((n) => [n.id, n]));
-
-        for (const batch of batches) {
-          if (runFailed) {
-            const skippedAt = new Date().toISOString();
-            for (const nodeId of batch) {
-              await db
-                .update(schema.dagNodeStates)
-                .set({ status: 'skipped', endedAt: skippedAt })
-                .where(and(
-                  eq(schema.dagNodeStates.runId, runId),
-                  eq(schema.dagNodeStates.nodeId, nodeId)
-                ));
-            }
-            continue;
-          }
-
-          const batchStartedAt = new Date().toISOString();
-          for (const nodeId of batch) {
-            await db
-              .update(schema.dagNodeStates)
-              .set({ status: 'running', startedAt: batchStartedAt })
-              .where(and(
-                eq(schema.dagNodeStates.runId, runId),
-                eq(schema.dagNodeStates.nodeId, nodeId)
-              ));
-          }
-
-          if (batch.length === 1) {
-            const nodeId = batch[0]!;
-            const node = nodeMap.get(nodeId)!;
-            const resolvedPrompt = substituteVariables(node.prompt, context);
-
-            console.log(`[DAG Worker] Executing node ${nodeId} (agent: ${node.agentId})`);
-
-            const result = await executeAgentNode(gateway, {
-              agentId: node.agentId,
-              prompt: resolvedPrompt,
-              timeoutMs: 60000,
-            });
-
-            const nodeEndedAt = new Date().toISOString();
-
-            if (result.success) {
-              context[nodeId] = result.output;
-              await db
-                .update(schema.dagNodeStates)
-                .set({ status: 'completed', output: result.output, endedAt: nodeEndedAt })
-                .where(and(
-                  eq(schema.dagNodeStates.runId, runId),
-                  eq(schema.dagNodeStates.nodeId, nodeId)
-                ));
-              console.log(`[DAG Worker] Node ${nodeId} completed`);
-            } else {
-              runFailed = true;
-              failedNodeId = nodeId;
-              failedError = result.error;
-              await db
-                .update(schema.dagNodeStates)
-                .set({ status: 'failed', error: result.error, endedAt: nodeEndedAt })
-                .where(and(
-                  eq(schema.dagNodeStates.runId, runId),
-                  eq(schema.dagNodeStates.nodeId, nodeId)
-                ));
-              console.error(`[DAG Worker] Node ${nodeId} failed: ${result.error}`);
-            }
-          } else {
-            const parallelNodes = batch.map((nodeId) => {
-              const node = nodeMap.get(nodeId)!;
-              return {
-                nodeId,
-                agentId: node.agentId,
-                prompt: substituteVariables(node.prompt, context),
-              };
-            });
-
-            console.log(`[DAG Worker] Executing parallel batch: [${batch.join(', ')}]`);
-
-            const results = await executeAgentNodesParallel(gateway, parallelNodes, 60000);
-            const batchEndedAt = new Date().toISOString();
-
-            for (const nodeId of batch) {
-              const result = results.get(nodeId);
-              if (!result) continue;
-
-              if (result.success) {
-                context[nodeId] = result.output;
-                await db
-                  .update(schema.dagNodeStates)
-                  .set({ status: 'completed', output: result.output, endedAt: batchEndedAt })
-                  .where(and(
-                    eq(schema.dagNodeStates.runId, runId),
-                    eq(schema.dagNodeStates.nodeId, nodeId)
-                  ));
-              } else {
-                if (!runFailed) {
-                  runFailed = true;
-                  failedNodeId = nodeId;
-                  failedError = result.error;
-                }
-                await db
-                  .update(schema.dagNodeStates)
-                  .set({ status: 'failed', error: result.error, endedAt: batchEndedAt })
-                  .where(and(
-                    eq(schema.dagNodeStates.runId, runId),
-                    eq(schema.dagNodeStates.nodeId, nodeId)
-                  ));
-                console.error(`[DAG Worker] Node ${nodeId} failed: ${result.error}`);
-              }
-            }
-          }
-        }
-
-        const runEndedAt = new Date().toISOString();
-
-        if (runFailed) {
-          await db
-            .update(schema.dagRuns)
-            .set({
-              status: 'failed',
-              error: `Node "${failedNodeId}" failed: ${failedError}`,
-              endedAt: runEndedAt,
-            })
-            .where(eq(schema.dagRuns.id, runId));
-
-          return { runId, status: 'failed', failedNodeId };
-        }
-
-        const lastBatch = batches[batches.length - 1] ?? [];
-        const lastNodeId = lastBatch[lastBatch.length - 1];
-        const finalOutput = lastNodeId ? (context[lastNodeId] ?? null) : null;
-
-        await db
-          .update(schema.dagRuns)
-          .set({ status: 'completed', output: finalOutput, endedAt: runEndedAt })
-          .where(eq(schema.dagRuns.id, runId));
-
-        console.log(`[DAG Worker] Run ${runId} completed (${definition.nodes.length} nodes)`);
-        return { runId, status: 'completed' };
-
+        return await executeDagRun({ runId, definition, gateway, db });
       } finally {
-        // 个人模式：清理 GatewayClient 连接
         if (isPersonalMode) {
           try {
             gateway.disconnect();
@@ -269,7 +452,6 @@ export function startDagWorker(): Worker {
             // 忽略清理错误
           }
         }
-        // 团队模式：GatewayPool 的连接由连接池自动管理
       }
     },
     { connection: getBullMqRedis() }

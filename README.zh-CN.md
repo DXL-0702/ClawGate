@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/版本-v0.3-blue" />
+  <img src="https://img.shields.io/badge/版本-v0.6-blue" />
   <img src="https://img.shields.io/badge/许可证-MIT-green" />
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" />
   <img src="https://img.shields.io/badge/rust-1.70%2B-orange" />
@@ -29,7 +29,7 @@ ClawGate 是 [OpenClaw](https://github.com/openclaw)（本地 AI Agent 运行时
 
 - 🧠 **智能路由** — 四层引擎（Hash 缓存 → 向量检索 → 哨兵模型 → 反馈闭环）自动为每个请求调度最优模型
 - 📊 **Agent 管理** — 跨所有 OpenClaw 实例的实时监控、Session 控制与 Token 成本追踪
-- 🔁 **工作流编排** — 基于 DAG 的任务调度，支持 cron、事件、Webhook 触发 *(v0.5 即将推出)*
+- 🔁 **工作流编排** — 基于 DAG 的任务调度，支持 Cron 定时与 Webhook 外部触发，多节点并行执行与变量传递
 
 > 零迁移成本。任何支持自定义 API Base URL 的工具（Cursor、LobeChat、OpenWebUI）均可直接接入。
 
@@ -128,6 +128,12 @@ GET  /api/agents
 GET  /api/sessions/:id
 GET  /api/route/stats          # L1–L4 各层命中率与延迟
 POST /api/route/feedback       # 提交 L4 反馈信号
+GET  /api/dags                 # DAG 工作流列表
+POST /api/dags/:id/run         # 触发 DAG 执行
+GET  /api/dag-runs/:runId      # 查询执行状态（含节点级状态）
+POST /api/dags/:id/webhook     # 外部 Webhook 触发
+GET  /api/health/overview      # 团队实例健康总览
+GET  /api/alerts               # 告警历史
 ```
 
 ---
@@ -157,17 +163,18 @@ ClawGate/
 | 里程碑 | 状态 | 核心内容 |
 |--------|------|----------|
 | MVP | ✅ | Monorepo、OpenClaw 集成、Web UI 骨架 |
-| v0.1 | ✅ | Agent 管理、Session 追踪、CLI、SQLite |
-| v0.3 | ✅ | 四层路由引擎、OpenAI 兼容 API（L1 已验证，L2/L3 代码就绪） |
-| v0.5 | 🔧 | DAG 工作流（Wave 1-2 完成）· Web 端 OpenClaw 重启/升级（Wave 2.5）· 多节点 DAG（Wave 3） |
-| v1.0 | 🔜 | 团队部署（中央服务器 + 多成员接入）· 多实例运维 · SDK · 自动更新（Watchtower） |
+| v0.1 | ✅ | Agent 管理、Session 追踪、CLI、SQLite + Redis 分层存储 |
+| v0.3 | ✅ | 四层路由引擎、OpenAI 兼容 API，L1–L4 全链路已验证 |
+| v0.5 | ✅ | DAG 工作流（Wave 1-3）：多节点执行、Cron/Webhook 触发、变量传递、可视化编辑器 |
+| v0.6 | 🔧 | DAG 进阶：执行历史、条件分支节点、延迟节点、输出缓存 |
+| v1.0 | 🔜 | 团队部署（Phase 2 核心已完成）· 健康面板（Phase 3 进行中）· SDK · 自动更新 |
 
-**v0.3 端到端验证结果（2026-04-15）**：
-- ✅ L1 Hash 缓存：命中率 100%，延迟 5s → 2ms
-- ✅ OpenAI 兼容端点 `/v1/chat/completions`
-- ✅ 服务启动链路：Rust (3001) + Python (8000) + Node.js (3000)
-- ⚠️ L2/L3 深度验证：被 L1 快速路径拦截，代码就绪，推迟至 v0.5
-- 🔜 L4 反馈接口：Node.js 端点未实现
+**v0.5 Wave 3 交付结果（2026-04-17）**：
+- ✅ 拓扑排序引擎（Kahn's BFS，分层批次执行）
+- ✅ 变量替换引擎（`{{nodeId.output}}` 跨节点数据传递）
+- ✅ 并行批次执行（最大 5 并发，信号量控制）
+- ✅ 可视化编辑器增强（节点状态着色、连线流动动效、i18n 中英文切换）
+- ✅ 团队部署核心：GatewayPool + 实例注册 + 心跳 + API Key 认证
 
 ---
 

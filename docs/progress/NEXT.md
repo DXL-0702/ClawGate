@@ -1,7 +1,7 @@
 # 下一步开发计划 (NEXT)
 
 > 本文件记录当前阶段的**具体开发思路**，完整路线图请参阅 [README.md](../../README.md)。
-> 最后更新：v0.5 Wave 3 + Wave 3.5 完成，视觉专业化优化已交付，准备进入 v0.6
+> 最后更新：v0.5 全部完成，v1.0 Phase 2 完成 + Phase 3 部分完成，进入 v0.6
 
 ---
 
@@ -81,48 +81,27 @@
 
 ---
 
-## 当前阶段：v1.0 Phase 3 — 健康检查定时任务（进行中）
+## 当前阶段：v0.6 — DAG 进阶功能（Wave 4）
 
 ### 目标
 
-实现实例健康检查定时任务，自动清理长时间未心跳的实例，保障 GatewayPool 选择准确性。
+在 v0.5 多节点执行基础上，补充深度验证、执行历史、条件分支、延迟节点等进阶功能。
+
+### 开发优先级
+
+D1 → D5 → D2 → D3 → D4
 
 ### 任务清单
 
-#### Step 1. BullMQ 定时任务（每分钟）
-- 遍历所有 `status = 'online'` 的 instances
-- 检查 Redis `instance:load:{id}` 是否存在
-- 无负载数据（超时 20s）→ 标记为 `offline`
+#### D1. DAG 深度验证（Issue 9）— 进行中
+- [ ] 6 场景 Mock 集成测试（线性链、并行 Diamond、失败中断、循环检测、长链路、变量边界）
+- [ ] 前端视觉状态与后端状态同步验证
+- [ ] 性能基准：50 节点 DAG 执行时间 < 5 分钟（待真实 Gateway 补验）
 
-#### Step 2. 连接清理
-- 对已标记 `offline` 且 `lastHeartbeatAt > 5 分钟前` 的实例
-- 调用 `GatewayPool.disconnect(instanceId)` 释放 WebSocket
-
-#### Step 3. 告警通知（可选）
-- 实例离线超过 10 分钟 → 发送通知（预留接口）
-
-### 依赖
-- BullMQ 定时任务已在 `packages/core/src/queue/index.ts` 有基础框架
-
-- `packages/core/src/openclaw/lifecycle.ts` — 核心逻辑骨架已完成（restart/upgrade/getStatus/checkUpdate）
-- `packages/server/src/routes/openclaw-lifecycle.ts` — REST 端点已写（含 auth + 确认头保护）
-- Remote SSH 模式为 stub，推迟至 v1.0 Phase 3
-
----
-
-## 下一阶段：v0.6 — DAG 进阶功能 + 深度验证
-
-### 目标
-
-在 Wave 3 多节点执行基础上，补充条件分支、延迟节点等进阶功能，并完成 Issue 9 深度验证。
-
-### 任务清单
-
-#### D1. DAG 深度验证（Issue 9）
-- [ ] 8个场景端到端测试（线性链、并行、失败中断、循环检测等）
-- [ ] 10节点长链路稳定性测试
-- [ ] 前端视觉状态与后端状态100%同步验证
-- [ ] 性能基准：50节点DAG执行时间 < 5分钟
+#### D5. 执行历史与回放
+- [ ] DAG Run 历史列表页（`/dags/:id/runs`）
+- [ ] 单次执行详情页（节点输出可视化展示）
+- [ ] 支持从任意已完成节点"重新执行"
 
 #### D2. 条件分支节点（condition）
 - [ ] 节点类型：`condition`，基于变量表达式判断
@@ -138,17 +117,31 @@
 #### D4. 节点输出缓存
 - [ ] 已完成节点输出缓存到 Redis（TTL 1小时）
 - [ ] 相同输入重复执行时直接返回缓存结果
-- [ ] 前端：缓存命中时节点显示 ⚡ 图标
-
-#### D5. 执行历史与回放
-- [ ] DAG Run 历史列表页（`/dags/:id/runs`）
-- [ ] 单次执行详情页（节点输出可视化展示）
-- [ ] 支持从任意已完成节点"重新执行"
 
 ### 技术债务处理
 - [ ] Cron 时区问题（支持 UTC/自定义时区）
 - [ ] Webhook Payload 映射到节点输入
 - [ ] DAG 导出/导入（JSON 格式）
+
+---
+
+## 待完成：v1.0 Phase 3 — 健康检查定时任务（剩余）
+
+**已完成**：alerts 表 + CRUD API、健康面板总览 + 趋势 API
+
+**待实现**：
+
+#### Step 1. BullMQ 定时任务（每分钟）
+- 遍历所有 `status = 'online'` 的 instances
+- 检查 Redis `instance:load:{id}` 是否存在
+- 无负载数据（超时 20s）→ 标记为 `offline`
+
+#### Step 2. 连接清理
+- 对已标记 `offline` 且 `lastHeartbeatAt > 5 分钟前` 的实例
+- 调用 `GatewayPool.disconnect(instanceId)` 释放 WebSocket
+
+#### Step 3. 告警通知（可选）
+- 实例离线超过 10 分钟 → 发送通知（预留接口）
 
 ---
 

@@ -1,7 +1,7 @@
 # 已完成开发 (DONE)
 
 > 本文件仅记录**已通过端到端验证**的功能模块，未验证的模块不在此列。
-> 最后更新：v0.5 Wave 1 完成
+> 最后更新：v0.5 Wave 3.5 + v1.0 Phase 2 + Phase 3（部分）完成
 
 ---
 
@@ -358,4 +358,62 @@ POST /api/dags/:id/webhook?token=wrong
 | 跳过态 | `stone-400` 暖石灰 | 虚线边框，柔和处理 |
 
 **v0.5 Wave 3.5 核心交付**：DAG 工作流界面视觉专业化，橙灰工业风统一，专业质感媲美工业控制面板。
+
+---
+
+## v1.0 Phase 2 — 团队部署架构核心（已完成）
+
+### Schema 与数据层
+
+- **`teams` 表**：团队 id / name / slug / ownerId
+- **`members` 表**：团队成员、角色（admin/member）、API Key 认证
+- **`instances` 表**：实例注册、环境标签（development/staging/production）、tags JSON、负载字段
+- **复合索引**：apiKey / teamId / environment / status 快速查询
+
+### 实例管理 API（`routes/instances.ts`）
+
+- `POST /api/instances/register` — 实例注册，返回 instanceId
+- `POST /api/instances/:id/heartbeat` — 心跳上报（含负载数据），写入 Redis `instance:load:{id}` TTL 20s
+- `GET  /api/instances` — 查询团队实例列表（支持 environment / tag 过滤）
+- `GET  /api/instances/:id/load` — 查询单实例实时负载
+
+### 团队与成员 API（`routes/teams.ts` / `routes/members.ts`）
+
+- 团队创建、成员邀请（直接写入）、成员列表、权限分级（admin/member）
+- 全链路 `X-API-Key` 认证中间件
+
+### GatewayPool（`core/src/gateway/pool.ts`）
+
+- 延迟连接（首次使用时建立 WebSocket）+ LRU 连接缓存
+- 负载选择策略：最少 activeSessions → 最短 queuedTasks → 最低 cpuUsage
+- 按 `environment` 过滤实例（DAG 执行可指定目标环境）
+- `selectForTask(teamId, { environment })` — 返回最优 instanceId
+
+### DAG 执行器集成
+
+- Worker 自动判断个人/团队模式，团队模式调用 GatewayPool 选择实例
+- 支持 `environment` 参数透传（通过 BullMQ job data）
+
+**验证结果（2026-04-17）**：创建团队 → 注册 production 实例 → 心跳上报 → 创建 DAG → 触发执行 → GatewayPool 选择正确实例，全流程通过。
+
+---
+
+## v1.0 Phase 3 — 健康面板与告警（已部分实现）
+
+### 已完成
+
+- **`alerts` 表**：告警记录（type / severity / acknowledged），含复合索引
+- **告警 CRUD API**（`routes/alerts.ts`）：
+  - `GET  /api/alerts` — 告警列表（支持 acknowledged / severity / type 过滤）
+  - `GET  /api/alerts/:id` — 告警详情（含 JSON details 字段）
+  - `POST /api/alerts/:id/ack` — 确认告警（记录确认人 + 时间）
+- **健康面板 API**（`routes/health-overview.ts`）：
+  - `GET /api/health/overview` — 实例聚合统计（total/online/offline/error by environment）+ 各 online 实例实时负载
+  - `GET /api/health/trends` — 最近 1 小时负载趋势（12 个 5 分钟时间点，avgCpu/avgMemory/totalSessions）
+
+### 待实现
+
+- 健康检查定时任务（BullMQ，每分钟检查超时实例 → 标记 offline）
+- GatewayPool 连接清理（offline 超 5 分钟 → `pool.disconnect(instanceId)`）
+- 告警通知接口（预留 Webhook 通知）
 

@@ -40,7 +40,11 @@ export {
   removeDagCronJob,
   updateDagCronJob,
 } from './dag/queue.js';
-export type { DagExecutionJob, DagEdge as DagJobEdge } from './dag/queue.js';
+export type {
+  DagExecutionJob, DagEdge as DagJobEdge,
+  ConditionExpression, ConditionOperator,
+  AgentNodeDef, ConditionNodeDef, DelayNodeDef, DagNodeDef,
+} from './dag/queue.js';
 
 // 双模式认证
 export { getAuthContext, PERSONAL_TEAM_ID } from './auth/index.js';
@@ -48,7 +52,9 @@ export type { AuthContext } from './auth/index.js';
 export {
   startDagWorker,
   stopDagWorker,
+  executeDagRun,
 } from './dag/executor.js';
+export type { DagRunParams, DagRunResult } from './dag/executor.js';
 export {
   topologicalSort,
   hasCycle,
@@ -59,6 +65,13 @@ export {
   extractReferencedNodes,
 } from './dag/variable-subst.js';
 export type { NodeOutputContext } from './dag/variable-subst.js';
+
+export {
+  evaluateCondition,
+  evaluateConditionToString,
+} from './dag/condition-eval.js';
+
+export { shouldSkipNode } from './dag/skip-logic.js';
 
 // OpenClaw 生命周期管理
 export { OpenClawLifecycle } from './openclaw/lifecycle.js';

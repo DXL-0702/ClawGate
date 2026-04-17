@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v0.3-blue" />
+  <img src="https://img.shields.io/badge/version-v0.6-blue" />
   <img src="https://img.shields.io/badge/license-MIT-green" />
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" />
   <img src="https://img.shields.io/badge/rust-1.70%2B-orange" />
@@ -29,7 +29,7 @@ ClawGate is an **infrastructure enhancement layer** for [OpenClaw](https://githu
 
 - 🧠 **Intelligent routing** — 4-layer engine (hash cache → vector search → sentinel model → feedback loop) automatically dispatches each request to the optimal model
 - 📊 **Agent management** — real-time monitoring, session control, and token cost tracking across all OpenClaw instances
-- 🔁 **Workflow orchestration** — DAG-based task scheduling with cron, event, and webhook triggers *(coming in v0.5)*
+- 🔁 **Workflow orchestration** — DAG-based task scheduling with cron and webhook triggers, multi-node parallel execution with variable passing
 
 > Zero migration required. Any tool that supports a custom API base URL (Cursor, LobeChat, OpenWebUI) works out of the box.
 
@@ -128,6 +128,12 @@ GET  /api/agents
 GET  /api/sessions/:id
 GET  /api/route/stats          # L1–L4 hit rates and latency
 POST /api/route/feedback       # submit L4 feedback signal
+GET  /api/dags                 # DAG workflow list
+POST /api/dags/:id/run         # trigger DAG execution
+GET  /api/dag-runs/:runId      # query run status (with node states)
+POST /api/dags/:id/webhook     # external webhook trigger
+GET  /api/health/overview      # team instance health summary
+GET  /api/alerts               # alert history
 ```
 
 ---
@@ -157,17 +163,18 @@ ClawGate/
 | Milestone | Status | Highlights |
 |-----------|--------|------------|
 | MVP | ✅ | Monorepo, OpenClaw integration, Web UI skeleton |
-| v0.1 | ✅ | Agent management, session tracking, CLI, SQLite |
-| v0.3 | ✅ | 4-layer routing engine, OpenAI-compatible API (L1 verified, L2/L3 code-ready) |
-| v0.5 | 🔧 | DAG workflow (Wave 1-2 done) · OpenClaw restart/upgrade via Web UI (Wave 2.5) · Multi-node DAG (Wave 3) |
-| v1.0 | 🔜 | Team deployment (central server + multi-member) · Multi-instance ops · SDK · Auto-update (Watchtower) |
+| v0.1 | ✅ | Agent management, session tracking, CLI, SQLite + Redis layered storage |
+| v0.3 | ✅ | 4-layer routing engine, OpenAI-compatible API, L1–L4 fully validated |
+| v0.5 | ✅ | DAG workflow (Wave 1-3): multi-node execution, cron/webhook triggers, variable passing, visual editor |
+| v0.6 | 🔧 | DAG advanced: run history, condition branch, delay node, output cache |
+| v1.0 | 🔜 | Team deployment (Phase 2 core done) · Health dashboard (Phase 3 in progress) · SDK · Auto-update |
 
-**v0.3 End-to-End Validation (2026-04-15)**:
-- ✅ L1 Hash cache: 100% hit rate, latency 5s → 2ms
-- ✅ OpenAI-compatible endpoint `/v1/chat/completions`
-- ✅ Service startup chain: Rust (3001) + Python (8000) + Node.js (3000)
-- ⚠️ L2/L3 code ready but bypassed by L1 fast path, deferred to v0.5
-- 🔜 L4 feedback API: Node.js endpoint pending implementation
+**v0.5 Wave 3 Delivery (2026-04-17)**:
+- ✅ Topological sort engine (Kahn's BFS, layered batch execution)
+- ✅ Variable substitution (`{{nodeId.output}}` cross-node data passing)
+- ✅ Parallel batch execution (max 5 concurrent, semaphore control)
+- ✅ Visual editor enhancements (node status coloring, animated edges, i18n ZH/EN)
+- ✅ Team deployment core: GatewayPool + instance registration + heartbeat + API Key auth
 
 ---
 

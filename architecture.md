@@ -219,14 +219,15 @@ pushRoutingLog()              ← Redis routing_logs_buf
 | API key not configured | 400 | `ConfigError` thrown in Provider |
 | Provider call failed | 502 | Network / model error |
 
-### 6.3 Known Limitations (v0.3)
+### 6.3 Known Limitations / Status (v0.5)
 
 | Issue | Status | Details |
 |-------|--------|---------|
 | **Issue 1** | ✅ Fixed | `connectRedis()` now called at startup. Routing logs write successfully. |
 | **Issue 5** | 🔜 Deferred | Qdrant healthcheck reports `unhealthy` due to missing `curl` in image. Does not affect functionality. |
-| **L2/L3 validation** | ⚠️ Code ready | Python services implemented, but L1 fast path bypasses them in current test cases. Deep validation deferred to v0.5. |
-| **L4 feedback API** | ❌ Pending | Node.js `POST /api/route/feedback` endpoint not yet implemented.
+| **Issue 6** | 🔜 Deferred | Gateway device authentication (challenge-response) not implemented. DAG e2e tests use Mock Gateway. |
+| **L2/L3 validation** | ✅ Validated | Four-layer routing fully validated (2026-04-16). L1 <1ms, L2 ~40ms, L3 <100ms (hybrid strategy). |
+| **L4 feedback API** | ✅ Implemented | `POST /api/route/feedback` Node.js endpoint + Python feedback loop. |
 
 ---
 
@@ -429,6 +430,6 @@ graph TB
 
 ---
 
-**Last Updated**: 2026-04-16
-**Version**: v0.5 (DAG Workflow Wave 1-2 done, OpenClaw Lifecycle Wave 2.5 in progress)
-**Next**: Wave 2.5 (OpenClaw restart/upgrade via Web UI) → Wave 3 (Multi-node DAG) → v1.0 (Team deployment)
+**Last Updated**: 2026-04-17
+**Version**: v0.6 (v0.5 Wave 1-3 done, v1.0 Phase 2 done, Phase 3 in progress)
+**Next**: v0.6 Wave 4 (DAG advanced: run history, condition branch, delay node, output cache)

@@ -11,6 +11,41 @@ export interface DagEdge {
   targetHandle?: string;
 }
 
+// ── 条件表达式 ─────────────────────────────────────────────────
+
+export type ConditionOperator = 'eq' | 'neq' | 'contains' | 'not_contains' | 'empty' | 'not_empty';
+
+export interface ConditionExpression {
+  left: string;
+  operator: ConditionOperator;
+  right?: string;
+}
+
+// ── 节点定义（联合类型） ───────────────────────────────────────
+
+export interface AgentNodeDef {
+  id: string;
+  type: 'agent';
+  agentId: string;
+  prompt: string;
+}
+
+export interface ConditionNodeDef {
+  id: string;
+  type: 'condition';
+  expression: ConditionExpression;
+}
+
+export interface DelayNodeDef {
+  id: string;
+  type: 'delay';
+  delaySeconds: number;
+}
+
+export type DagNodeDef = AgentNodeDef | ConditionNodeDef | DelayNodeDef;
+
+// ── 执行任务 ───────────────────────────────────────────────────
+
 export interface DagExecutionJob {
   runId: string;
   dagId: string;
@@ -18,12 +53,7 @@ export interface DagExecutionJob {
   /** 指定运行环境（用于 GatewayPool 选择实例） */
   environment?: 'development' | 'staging' | 'production';
   definition: {
-    nodes: Array<{
-      id: string;
-      type: 'agent';
-      agentId: string;
-      prompt: string;
-    }>;
+    nodes: DagNodeDef[];
     edges?: DagEdge[];
   };
 }

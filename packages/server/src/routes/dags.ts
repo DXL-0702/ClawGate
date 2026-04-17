@@ -5,14 +5,34 @@ import {
 } from '@clawgate/core';
 import { eq, or, isNull } from 'drizzle-orm';
 
-/** DAG 定义（支持 nodes + edges）*/
+/** DAG 定义（支持 agent + condition 节点）*/
+interface AgentNodeDef {
+  id: string;
+  type: 'agent';
+  agentId: string;
+  prompt: string;
+}
+
+interface ConditionNodeDef {
+  id: string;
+  type: 'condition';
+  expression: {
+    left: string;
+    operator: 'eq' | 'neq' | 'contains' | 'not_contains' | 'empty' | 'not_empty';
+    right?: string;
+  };
+}
+
+interface DelayNodeDef {
+  id: string;
+  type: 'delay';
+  delaySeconds: number;
+}
+
+type DagNodeDef = AgentNodeDef | ConditionNodeDef | DelayNodeDef;
+
 interface DagDefinition {
-  nodes: Array<{
-    id: string;
-    type: 'agent';
-    agentId: string;
-    prompt: string;
-  }>;
+  nodes: DagNodeDef[];
   edges?: Array<{
     id: string;
     source: string;
@@ -54,9 +74,9 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
 
     // 团队模式：显示所有同 team 的 DAG
     // 个人模式：只显示 teamId = 'local' 的 DAG
-    const conditions = auth.mode === 'personal'
-      ? [isNull(schema.dags.teamId).or(eq(schema.dags.teamId, PERSONAL_TEAM_ID))]
-      : [eq(schema.dags.teamId, auth.teamId)];
+    const condition = auth.mode === 'personal'
+      ? or(isNull(schema.dags.teamId), eq(schema.dags.teamId, PERSONAL_TEAM_ID))
+      : eq(schema.dags.teamId, auth.teamId);
 
     const dags = await db
       .select({
@@ -67,7 +87,7 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
         createdAt: schema.dags.createdAt,
       })
       .from(schema.dags)
-      .where(or(...conditions))
+      .where(condition)
       .orderBy(schema.dags.createdAt);
 
     return { dags: dags.map((d) => ({ ...d, enabled: !!d.enabled })) };
@@ -119,9 +139,26 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
         return reply.status(400).send({ error: 'at least one node is required' });
       }
 
-      const node = definition.nodes[0];
-      if (!node.agentId || !node.prompt) {
-        return reply.status(400).send({ error: 'node must have agentId and prompt' });
+      // 至少一个 agent 节点有完整配置
+      const agentNodes = definition.nodes.filter((n): n is AgentNodeDef => n.type === 'agent');
+      if (!agentNodes.some((n) => n.agentId && n.prompt)) {
+        return reply.status(400).send({ error: 'at least one agent node must have agentId and prompt' });
+      }
+
+      // 条件节点必须有 operator
+      const conditionNodes = definition.nodes.filter((n): n is ConditionNodeDef => n.type === 'condition');
+      for (const cn of conditionNodes) {
+        if (!cn.expression || !cn.expression.operator) {
+          return reply.status(400).send({ error: `condition node "${cn.id}" must have expression.operator` });
+        }
+      }
+
+      // 延迟节点必须有 delaySeconds >= 0
+      const delayNodes = definition.nodes.filter((n): n is DelayNodeDef => n.type === 'delay');
+      for (const dn of delayNodes) {
+        if (typeof dn.delaySeconds !== 'number' || dn.delaySeconds < 0) {
+          return reply.status(400).send({ error: `delay node "${dn.id}" must have delaySeconds >= 0` });
+        }
       }
 
       if (trigger === 'cron' && cronExpression && !isValidCron(cronExpression)) {

@@ -5,6 +5,8 @@ import SessionsPage from './pages/SessionsPage.js';
 import RouterPage from './pages/RouterPage.js';
 import DagsListPage from './pages/DagsListPage.js';
 import DagEditorPage from './pages/DagEditorPage.js';
+import DagRunsPage from './pages/DagRunsPage.js';
+import DagRunDetailPage from './pages/DagRunDetailPage.js';
 import Layout from './components/Layout.js';
 
 export default function App() {
@@ -17,6 +19,8 @@ export default function App() {
         <Route path="/router" element={<RouterPage />} />
         <Route path="/dags" element={<DagsListPage />} />
         <Route path="/dags/:id" element={<DagEditorPage />} />
+        <Route path="/dags/:id/runs" element={<DagRunsPage />} />
+        <Route path="/dags/:dagId/runs/:runId" element={<DagRunDetailPage />} />
       </Routes>
     </Layout>
   );

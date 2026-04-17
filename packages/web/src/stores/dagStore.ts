@@ -17,7 +17,21 @@ export interface AgentNodeData {
   prompt: string;
 }
 
-export type NodeData = AgentNodeData;
+export interface ConditionNodeData {
+  type: 'condition';
+  expression: {
+    left: string;
+    operator: 'eq' | 'neq' | 'contains' | 'not_contains' | 'empty' | 'not_empty';
+    right?: string;
+  };
+}
+
+export interface DelayNodeData {
+  type: 'delay';
+  delaySeconds: number;
+}
+
+export type NodeData = AgentNodeData | ConditionNodeData | DelayNodeData;
 
 export type NodeExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
@@ -37,7 +51,7 @@ interface DagStore {
   nodeStatuses: Record<string, NodeExecutionStatus>;
 
   // 操作
-  addNode: (type: 'agent', position: { x: number; y: number }) => void;
+  addNode: (type: 'agent' | 'condition' | 'delay', position: { x: number; y: number }) => void;
   updateNodeData: (id: string, data: Partial<NodeData>) => void;
   removeNode: (id: string) => void;
   setSelectedNode: (id: string | null) => void;
@@ -59,9 +73,11 @@ interface DagStore {
   loadFromDefinition: (definition: {
     nodes: Array<{
       id: string;
-      type: 'agent';
-      agentId: string;
-      prompt: string;
+      type: string;
+      agentId?: string;
+      prompt?: string;
+      expression?: { left: string; operator: string; right?: string };
+      delaySeconds?: number;
       position?: { x: number; y: number };
     }>;
     edges?: Array<{ id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string }>;
@@ -88,15 +104,16 @@ export const useDagStore = create<DagStore>((set, get) => ({
 
   addNode: (type, position) => {
     const id = `node-${++nodeIdCounter}`;
+    const data: NodeData = type === 'condition'
+      ? { type: 'condition', expression: { left: '', operator: 'eq', right: '' } }
+      : type === 'delay'
+      ? { type: 'delay', delaySeconds: 5 }
+      : { type: 'agent', agentId: '', prompt: '' };
     const newNode: Node<NodeData> = {
       id,
       type,
       position,
-      data: {
-        type: 'agent',
-        agentId: '',
-        prompt: '',
-      },
+      data,
     };
     set((state) => ({
       nodes: [...state.nodes, newNode],
@@ -219,16 +236,34 @@ export const useDagStore = create<DagStore>((set, get) => ({
   },
 
   loadFromDefinition: (definition) => {
-    const nodes: Node<NodeData>[] = definition.nodes.map((n, index) => ({
-      id: n.id,
-      type: n.type,
-      position: n.position ?? { x: 300 + index * 250, y: 200 },
-      data: {
-        type: 'agent',
-        agentId: n.agentId,
-        prompt: n.prompt,
-      },
-    }));
+    const nodes: Node<NodeData>[] = definition.nodes.map((n, index) => {
+      const data: NodeData = n.type === 'condition'
+        ? {
+            type: 'condition',
+            expression: {
+              left: n.expression?.left ?? '',
+              operator: (n.expression?.operator as ConditionNodeData['expression']['operator']) ?? 'eq',
+              right: n.expression?.right ?? '',
+            },
+          }
+        : n.type === 'delay'
+        ? {
+            type: 'delay',
+            delaySeconds: n.delaySeconds ?? 5,
+          }
+        : {
+            type: 'agent',
+            agentId: n.agentId ?? '',
+            prompt: n.prompt ?? '',
+          };
+
+      return {
+        id: n.id,
+        type: n.type === 'condition' ? 'condition' : n.type === 'delay' ? 'delay' : 'agent',
+        position: n.position ?? { x: 300 + index * 250, y: 200 },
+        data,
+      };
+    });
 
     const edges: Edge[] = (definition.edges ?? []).map((e) => ({
       id: e.id,

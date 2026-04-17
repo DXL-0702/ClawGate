@@ -117,6 +117,7 @@ function migrate(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS dag_runs (
       id            TEXT PRIMARY KEY,
       dag_id        TEXT NOT NULL REFERENCES dags(id),
+      team_id       TEXT,
       status        TEXT NOT NULL DEFAULT 'pending',
       triggered_by  TEXT NOT NULL DEFAULT 'manual',
       output        TEXT,
@@ -230,6 +231,20 @@ function migrate(sqlite: InstanceType<typeof Database>): void {
       }
     } catch (err) {
       console.error('[DB Migration] Failed to add team_id to dags:', err);
+    }
+  }
+
+  // v0.6: dag_runs 表添加 team_id 列（如果不存在）
+  if (existingTables.has('dag_runs')) {
+    try {
+      const dagRunsColumns = sqlite.prepare('PRAGMA table_info(dag_runs)').all() as { name: string }[];
+      const hasTeamId = dagRunsColumns.some(c => c.name === 'team_id');
+      if (!hasTeamId) {
+        sqlite.exec(`ALTER TABLE dag_runs ADD COLUMN team_id TEXT`);
+        console.log('[DB Migration] Added team_id column to dag_runs table');
+      }
+    } catch (err) {
+      console.error('[DB Migration] Failed to add team_id to dag_runs:', err);
     }
   }
 

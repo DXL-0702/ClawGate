@@ -13,11 +13,15 @@ import 'reactflow/dist/style.css';
 
 import { useDagStore, type NodeExecutionStatus } from '../stores/dagStore.js';
 import { AgentNode } from '../components/nodes/AgentNode.js';
+import { ConditionNode } from '../components/nodes/ConditionNode.js';
+import { DelayNode } from '../components/nodes/DelayNode.js';
 import { DagNodePanel } from '../components/DagNodePanel.js';
 import { useLang } from '../i18n/LanguageContext.js';
 
 const nodeTypes: NodeTypes = {
   agent: AgentNode,
+  condition: ConditionNode,
+  delay: DelayNode,
 };
 
 interface Agent {
@@ -124,6 +128,24 @@ function DagEditorInner() {
     addNode('agent', position);
   }, [nodes, addNode]);
 
+  // 添加条件节点
+  const handleAddCondition = useCallback(() => {
+    const lastNode = nodes[nodes.length - 1];
+    const position = lastNode
+      ? { x: lastNode.position.x + 250, y: lastNode.position.y }
+      : { x: 300, y: 200 };
+    addNode('condition', position);
+  }, [nodes, addNode]);
+
+  // 添加延迟节点
+  const handleAddDelay = useCallback(() => {
+    const lastNode = nodes[nodes.length - 1];
+    const position = lastNode
+      ? { x: lastNode.position.x + 250, y: lastNode.position.y }
+      : { x: 300, y: 200 };
+    addNode('delay', position);
+  }, [nodes, addNode]);
+
   // 保存 DAG（含 edges）
   const handleSave = async () => {
     if (!dagName.trim()) {
@@ -136,10 +158,13 @@ function DagEditorInner() {
       return;
     }
 
-    const firstNode = nodes[0];
-    if (!firstNode?.data.agentId || !firstNode.data.prompt) {
-      alert(t('editor.config_node'));
-      setSelectedNode(firstNode!.id);
+    // 校验：至少一个 agent 节点配置完整
+    const agentNodes = nodes.filter((n) => n.data.type === 'agent');
+    const hasConfiguredAgent = agentNodes.some(
+      (n) => n.data.type === 'agent' && n.data.agentId && n.data.prompt
+    );
+    if (!hasConfiguredAgent) {
+      alert(t('editor.add_one_agent_node'));
       return;
     }
 
@@ -150,12 +175,28 @@ function DagEditorInner() {
       const body = {
         name: dagName,
         definition: {
-          nodes: definition.nodes.map((n) => ({
-            id: n.id,
-            type: n.type,
-            agentId: n.data.agentId,
-            prompt: n.data.prompt,
-          })),
+          nodes: definition.nodes.map((n) => {
+            if (n.data.type === 'condition') {
+              return {
+                id: n.id,
+                type: 'condition' as const,
+                expression: n.data.expression,
+              };
+            }
+            if (n.data.type === 'delay') {
+              return {
+                id: n.id,
+                type: 'delay' as const,
+                delaySeconds: n.data.delaySeconds,
+              };
+            }
+            return {
+              id: n.id,
+              type: 'agent' as const,
+              agentId: n.data.type === 'agent' ? n.data.agentId : '',
+              prompt: n.data.type === 'agent' ? n.data.prompt : '',
+            };
+          }),
           edges: definition.edges.map((e) => ({
             id: e.id,
             source: e.source,
@@ -303,6 +344,44 @@ function DagEditorInner() {
           </svg>
           <span className="hidden sm:inline">{t('editor.add_node')}</span>
         </button>
+
+        {/* 添加条件按钮 */}
+        <button
+          onClick={handleAddCondition}
+          className="group flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-teal-300/80 bg-teal-900/20 border border-teal-700/30 rounded-lg hover:bg-teal-800/30 hover:text-teal-200 hover:border-teal-600/50 transition-all duration-200"
+          title="添加条件分支"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 3l9 9-9 9-9-9 9-9z" />
+          </svg>
+          <span className="hidden sm:inline">{t('editor.add_condition')}</span>
+        </button>
+
+        {/* 添加延迟按钮 */}
+        <button
+          onClick={handleAddDelay}
+          className="group flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-violet-300/80 bg-violet-900/20 border border-violet-700/30 rounded-lg hover:bg-violet-800/30 hover:text-violet-200 hover:border-violet-600/50 transition-all duration-200"
+          title="添加延迟"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="hidden sm:inline">{t('editor.add_delay')}</span>
+        </button>
+
+        {/* 历史按钮 - 仅已保存 DAG 显示 */}
+        {!isNew && id && (
+          <button
+            onClick={() => navigate(`/dags/${id}/runs`)}
+            className="group flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-300 bg-gray-800/60 border border-gray-700/50 rounded-lg hover:bg-gray-700/60 hover:text-white hover:border-gray-600 transition-all duration-200"
+            title={t('editor.run_history')}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="hidden sm:inline">{t('editor.run_history')}</span>
+          </button>
+        )}
 
         {/* 保存按钮 - 沉稳固态 */}
         <button
