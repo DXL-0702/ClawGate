@@ -40,11 +40,21 @@ export {
   removeDagCronJob,
   updateDagCronJob,
 } from './dag/queue.js';
-export type { DagExecutionJob } from './dag/queue.js';
+export type { DagExecutionJob, DagEdge as DagJobEdge } from './dag/queue.js';
 export {
   startDagWorker,
   stopDagWorker,
 } from './dag/executor.js';
+export {
+  topologicalSort,
+  hasCycle,
+} from './dag/topo-sort.js';
+export type { DagEdge, DagNode } from './dag/topo-sort.js';
+export {
+  substituteVariables,
+  extractReferencedNodes,
+} from './dag/variable-subst.js';
+export type { NodeOutputContext } from './dag/variable-subst.js';
 
 // OpenClaw 生命周期管理
 export { OpenClawLifecycle } from './openclaw/lifecycle.js';

@@ -150,6 +150,10 @@ export async function executeAgentNode(
 /**
  * 并行执行多个 Agent 节点（带并发控制）
  * 最大并发数由 CLAWGATE_MAX_PARALLEL_SESSIONS 控制（默认 5）
+ *
+ * 并发控制策略：自清理 Promise 模式
+ * 每个 Promise 在 finally 中将自身从 executing 数组移除，
+ * 避免双重 Promise.race 引发的竞态问题。
  */
 export async function executeAgentNodesParallel(
   gateway: GatewayClient,
@@ -157,12 +161,17 @@ export async function executeAgentNodesParallel(
   globalTimeoutMs?: number
 ): Promise<Map<string, ExecuteNodeResult>> {
   const results = new Map<string, ExecuteNodeResult>();
-
-  // 并发控制：使用简易信号量
   const executing: Promise<void>[] = [];
 
   for (const node of nodes) {
-    const executePromise = (async () => {
+    // 达到并发上限时，等待任意一个完成后再继续
+    if (executing.length >= MAX_PARALLEL_SESSIONS) {
+      await Promise.race(executing);
+    }
+
+    // 使用 let 声明，确保 finally 闭包中能引用到 p 自身
+    let p: Promise<void>;
+    p = (async () => {
       const result = await executeAgentNode(gateway, {
         agentId: node.agentId,
         prompt: node.prompt,
@@ -170,19 +179,12 @@ export async function executeAgentNodesParallel(
         onMessage: node.onMessage,
       });
       results.set(node.nodeId, result);
-    })();
+    })().finally(() => {
+      const idx = executing.indexOf(p);
+      if (idx !== -1) executing.splice(idx, 1);
+    });
 
-    executing.push(executePromise);
-
-    // 达到并发上限时，等待任意一个完成
-    if (executing.length >= MAX_PARALLEL_SESSIONS) {
-      await Promise.race(executing);
-      // 移除已完成的 Promise
-      const completedIndex = await Promise.race(
-        executing.map((p, i) => p.then(() => i))
-      );
-      executing.splice(completedIndex, 1);
-    }
+    executing.push(p);
   }
 
   // 等待所有剩余任务完成

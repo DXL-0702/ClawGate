@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useLang } from '../i18n/LanguageContext.js';
 
 interface Dag {
   id: string;
@@ -9,6 +10,7 @@ interface Dag {
 
 export default function DagsListPage() {
   const navigate = useNavigate();
+  const { t } = useLang();
   const [dags, setDags] = useState<Dag[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -16,7 +18,7 @@ export default function DagsListPage() {
   useEffect(() => {
     fetch('/api/dags')
       .then((r) => {
-        if (!r.ok) throw new Error('Failed to load DAGs');
+        if (!r.ok) throw new Error(t('common.load_failed'));
         return r.json();
       })
       .then((data) => {
@@ -27,7 +29,7 @@ export default function DagsListPage() {
         setError(err.message);
         setIsLoading(false);
       });
-  }, []);
+  }, [t]);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -43,37 +45,37 @@ export default function DagsListPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-white">DAG 工作流</h1>
-          <p className="text-sm text-gray-400 mt-1">创建和管理多步骤 AI 工作流</p>
+          <h1 className="text-xl font-semibold text-white">{t('dags.title')}</h1>
+          <p className="text-sm text-gray-400 mt-1">{t('dags.subtitle')}</p>
         </div>
         <button
           onClick={() => navigate('/dags/new')}
           className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
         >
-          + 新建 DAG
+          {t('dags.create')}
         </button>
       </div>
 
       {isLoading && (
         <div className="text-center py-12">
-          <p className="text-gray-400">加载中...</p>
+          <p className="text-gray-400">{t('common.loading')}</p>
         </div>
       )}
 
       {error && (
         <div className="p-4 rounded-lg bg-red-900/30 border border-red-700">
-          <p className="text-red-400">加载失败: {error}</p>
+          <p className="text-red-400">{t('common.load_failed')}: {error}</p>
         </div>
       )}
 
       {!isLoading && !error && dags.length === 0 && (
         <div className="text-center py-12 border border-dashed border-gray-700 rounded-lg">
-          <p className="text-gray-400 mb-4">还没有创建任何 DAG</p>
+          <p className="text-gray-400 mb-4">{t('dags.empty')}</p>
           <button
             onClick={() => navigate('/dags/new')}
             className="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-white rounded transition-colors"
           >
-            创建第一个 DAG
+            {t('dags.create_first')}
           </button>
         </div>
       )}
@@ -83,9 +85,9 @@ export default function DagsListPage() {
           <table className="w-full">
             <thead className="bg-gray-900/50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">名称</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">创建时间</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">操作</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">{t('dags.col_name')}</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">{t('dags.col_created')}</th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">{t('dags.col_action')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
@@ -110,7 +112,7 @@ export default function DagsListPage() {
                       }}
                       className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
                     >
-                      编辑 →
+                      {t('dags.edit_link')}
                     </button>
                   </td>
                 </tr>

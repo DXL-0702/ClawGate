@@ -1,7 +1,10 @@
 import { NavLink } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { useLang } from '../i18n/LanguageContext.js';
 
 export default function Layout({ children }: { children: ReactNode }) {
+  const { lang, t, toggleLang } = useLang();
+
   return (
     <div className="flex h-screen bg-bg-base text-text-primary antialiased">
       {/* 侧边栏：毛玻璃效果 */}
@@ -17,27 +20,43 @@ export default function Layout({ children }: { children: ReactNode }) {
         {/* 导航链接 */}
         <nav className="flex-1 space-y-1">
           <NavLink to="/" end className={navCls}>
-            Dashboard
+            {t('nav.dashboard')}
           </NavLink>
           <NavLink to="/agents" className={navCls}>
-            Agents
+            {t('nav.agents')}
           </NavLink>
           <NavLink to="/sessions" className={navCls}>
-            Sessions
+            {t('nav.sessions')}
           </NavLink>
           <NavLink to="/router" className={navCls}>
-            Router
+            {t('nav.router')}
           </NavLink>
           <NavLink to="/dags" className={navCls}>
-            DAG 工作流
+            {t('nav.dags')}
           </NavLink>
         </nav>
 
         {/* 底部状态栏 */}
-        <div className="mt-auto pt-4 border-t border-border-subtle">
+        <div className="mt-auto pt-4 border-t border-border-subtle space-y-2">
+          {/* 语言切换按钮 */}
+          <button
+            onClick={toggleLang}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-bg-overlay hover:bg-bg-subtle transition-colors"
+            title={lang === 'zh' ? 'Switch to English' : '切换为中文'}
+          >
+            <span className={`text-xs font-medium transition-colors ${lang === 'zh' ? 'text-accent' : 'text-text-tertiary'}`}>
+              ZH
+            </span>
+            <span className="text-xs text-text-tertiary">/</span>
+            <span className={`text-xs font-medium transition-colors ${lang === 'en' ? 'text-accent' : 'text-text-tertiary'}`}>
+              EN
+            </span>
+          </button>
+
+          {/* 系统状态 */}
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-overlay">
             <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-            <span className="text-xs text-text-secondary">System Online</span>
+            <span className="text-xs text-text-secondary">{t('nav.system_online')}</span>
           </div>
         </div>
       </aside>

@@ -258,3 +258,60 @@ POST /api/dags/:id/webhook?token=wrong
 
 **v0.5 Wave 2 核心交付**：DAG 自动化调度能力完整，支持定时（Cron）和外部（Webhook）两种自动触发方式。
 
+---
+
+## v0.5 Wave 3 — 多节点 DAG 执行（已完成）
+
+### 拓扑排序引擎
+
+- **`topologicalSort()`** — Kahn's BFS 算法，O(V+E) 分层批次生成
+  - 支持线性链（A→B→C）、并行分支（Diamond 结构）、复杂 DAG
+  - 自然产生分层批次，同批次内节点可并行执行
+- **`hasCycle()`** — 循环依赖检测，DAG 保存前校验
+- 单元测试：7/7 通过（线性链、Diamond、循环检测、空图、单节点）
+
+### 变量替换引擎
+
+- **`substituteVariables()`** — 替换 `{{node-X.output}}` 为上游节点输出
+- **`extractReferencedNodes()`** — 提取 Prompt 中引用的上游节点
+- 安全规则：未知变量原样保留，仅替换 context 中已存在的 key
+- 支持跨节点数据传递（下游读取上游执行结果）
+
+### 多节点执行引擎（executor.ts 重构）
+
+- **拓扑排序驱动**：按批次循环执行，失败时后续批次自动标记 `skipped`
+- **变量替换集成**：每节点执行前动态替换 Prompt 中的变量引用
+- **单/并行自动切换**：
+  - 单节点批次 → `executeAgentNode`（无并发开销）
+  - 多节点批次 → `executeAgentNodesParallel`（带并发控制）
+- **并发控制修复**：`executeAgentNodesParallel` 自清理 Promise 模式，消除竞态
+- **状态持久化**：每个节点 `dagNodeStates` 记录（pending → running → completed/failed/skipped）
+
+### 前端编辑器增强
+
+- **多语言支持（i18n）**：轻量 `LanguageContext` + `translations.ts`，ZH/EN 切换
+  - 侧边栏底部 ZH/EN 快速切换按钮，localStorage 持久化
+  - 覆盖所有页面（DAG 列表、编辑器、节点面板、导航）
+- **节点执行状态可视化**：
+  - `running` — 亮橙边框 + 脉冲动画 + 橙色指示点闪烁 + "执行中" 标签
+  - `completed` — 绿色边框 + ✓ 标记
+  - `failed` — 红色边框 + ✗ 标记
+  - `skipped` — 黄色虚线边框 + 半透明
+- **edges 保存**：创建/更新 DAG 时正确持久化 `edges`（含 `sourceHandle`/`targetHandle`）
+- **轮询节点状态**：`GET /api/dag-runs/:id` 内嵌 `nodes` 数组，前端实时更新各节点状态
+
+### 验证结果
+
+| 功能 | 验证状态 | 备注 |
+|------|----------|------|
+| **拓扑排序单元测试** | ✅ | 线性链、Diamond、循环检测全部通过 |
+| **变量替换单元测试** | ✅ | 已知/未知变量、多引用提取通过 |
+| **多节点 DAG 创建** | ✅ | edges 正确持久化到 SQLite |
+| **节点状态查询** | ✅ | `dag-runs` 响应含完整 `nodes` 数组 |
+| **循环依赖报错** | ✅ | 运行时拓扑错误，run 标记 failed |
+| **并发控制修复** | ✅ | 6 节点/5 并发上限场景通过 |
+| **前端 i18n** | ✅ | ZH/EN 切换，文案全覆盖 |
+| **节点状态着色** | ✅ | running 橙闪、completed 绿、failed 红、skipped 黄 |
+
+**v0.5 Wave 3 核心交付**：DAG 多节点执行完整实现，支持线性链、并行批次、变量替换，前端实时状态可视化。
+

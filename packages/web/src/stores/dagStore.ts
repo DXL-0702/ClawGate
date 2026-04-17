@@ -1,13 +1,13 @@
 import { create } from 'zustand';
-import type {
-  Node,
-  Edge,
-  NodeChange,
-  EdgeChange,
-  Connection,
+import {
   addEdge,
   applyNodeChanges,
   applyEdgeChanges,
+  type Node,
+  type Edge,
+  type NodeChange,
+  type EdgeChange,
+  type Connection,
 } from 'reactflow';
 
 export interface AgentNodeData {
@@ -18,17 +18,22 @@ export interface AgentNodeData {
 
 export type NodeData = AgentNodeData;
 
+export type NodeExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+
 interface DagStore {
   // 画布状态
   nodes: Node<NodeData>[];
   edges: Edge[];
   selectedNodeId: string | null;
 
-  // 运行状态
+  // 运行状态（run 级别）
   isRunning: boolean;
   runStatus: 'idle' | 'pending' | 'running' | 'completed' | 'failed';
   runOutput: string | null;
   runError: string | null;
+
+  // 节点级执行状态
+  nodeStatuses: Record<string, NodeExecutionStatus>;
 
   // 操作
   addNode: (type: 'agent', position: { x: number; y: number }) => void;
@@ -45,6 +50,10 @@ interface DagStore {
   setRunError: (error: string) => void;
   resetRun: () => void;
 
+  // 节点级执行状态操作
+  setNodeStatuses: (statuses: Record<string, NodeExecutionStatus>) => void;
+  clearNodeStatuses: () => void;
+
   // 加载/保存
   loadFromDefinition: (definition: {
     nodes: Array<{
@@ -54,7 +63,7 @@ interface DagStore {
       prompt: string;
       position?: { x: number; y: number };
     }>;
-    edges?: Array<{ id: string; source: string; target: string }>;
+    edges?: Array<{ id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string }>;
   }) => void;
   toDefinition: () => { nodes: Node<NodeData>[]; edges: Edge[] };
   reset: () => void;
@@ -68,6 +77,7 @@ const initialState = {
   runStatus: 'idle' as const,
   runOutput: null,
   runError: null,
+  nodeStatuses: {},
 };
 
 let nodeIdCounter = 0;
@@ -165,8 +175,15 @@ export const useDagStore = create<DagStore>((set, get) => ({
     });
   },
 
+  setNodeStatuses: (statuses) => {
+    set({ nodeStatuses: statuses });
+  },
+
+  clearNodeStatuses: () => {
+    set({ nodeStatuses: {} });
+  },
+
   loadFromDefinition: (definition) => {
-    // 转换 API 节点为 ReactFlow 节点
     const nodes: Node<NodeData>[] = definition.nodes.map((n, index) => ({
       id: n.id,
       type: n.type,
@@ -182,15 +199,17 @@ export const useDagStore = create<DagStore>((set, get) => ({
       id: e.id,
       source: e.source,
       target: e.target,
+      sourceHandle: e.sourceHandle,
+      targetHandle: e.targetHandle,
     }));
 
     set({
       nodes,
       edges,
       selectedNodeId: null,
+      nodeStatuses: {},
     });
 
-    // 更新计数器，避免新节点 ID 冲突
     const maxId = definition.nodes.reduce((max, node) => {
       const num = parseInt(node.id.replace('node-', ''));
       return Math.max(max, isNaN(num) ? 0 : num);

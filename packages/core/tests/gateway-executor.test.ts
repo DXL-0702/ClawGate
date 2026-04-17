@@ -271,4 +271,37 @@ describe('executeAgentNodesParallel', () => {
     expect(results.get('node-2')?.error).toBe('Agent2 not found');
     expect(results.get('node-3')?.success).toBe(true);
   });
+
+  it('should respect MAX_PARALLEL_SESSIONS concurrency limit (6 nodes, limit 5)', async () => {
+    // 6 个节点，MAX_PARALLEL_SESSIONS = 5，第 6 个必须等待某个完成后才启动
+    const sessions = Array.from({ length: 6 }, (_, i) => ({ key: `agent:s${i + 1}` }));
+    sessions.forEach((s) => gateway.createSession.mockResolvedValueOnce(s));
+    gateway.sendMessage.mockResolvedValue(undefined);
+
+    const nodes = Array.from({ length: 6 }, (_, i) => ({
+      nodeId: `node-${i + 1}`,
+      agentId: 'agent',
+      prompt: `Task ${i + 1}`,
+    }));
+
+    const promise = executeAgentNodesParallel(gateway as unknown as GatewayClient, nodes, 2000);
+
+    // 模拟所有节点依次完成
+    sessions.forEach((s, i) => {
+      setTimeout(() => {
+        gateway.emitEvent('session.message', { key: s.key, content: `Result ${i + 1}` });
+        gateway.emitEvent('session.end', { key: s.key });
+      }, (i + 1) * 15);
+    });
+
+    const results = await promise;
+
+    // 6 个节点全部成功完成，不遗漏
+    expect(results.size).toBe(6);
+    for (let i = 1; i <= 6; i++) {
+      expect(results.get(`node-${i}`)?.success).toBe(true);
+      expect(results.get(`node-${i}`)?.output).toBe(`Result ${i}`);
+    }
+    expect(gateway.abortSession).toHaveBeenCalledTimes(6);
+  });
 });

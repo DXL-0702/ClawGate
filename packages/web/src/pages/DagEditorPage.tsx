@@ -10,9 +10,10 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-import { useDagStore } from '../stores/dagStore.js';
+import { useDagStore, type NodeExecutionStatus } from '../stores/dagStore.js';
 import { AgentNode } from '../components/nodes/AgentNode.js';
 import { DagNodePanel } from '../components/DagNodePanel.js';
+import { useLang } from '../i18n/LanguageContext.js';
 
 const nodeTypes: NodeTypes = {
   agent: AgentNode,
@@ -23,9 +24,17 @@ interface Agent {
   name: string;
 }
 
+interface NodeState {
+  nodeId: string;
+  status: NodeExecutionStatus;
+  output?: string;
+  error?: string;
+}
+
 function DagEditorInner() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { t } = useLang();
   const isNew = id === 'new';
 
   const {
@@ -45,6 +54,8 @@ function DagEditorInner() {
     setRunResult,
     setRunError,
     resetRun,
+    setNodeStatuses,
+    clearNodeStatuses,
     toDefinition,
     loadFromDefinition,
     reset,
@@ -69,21 +80,19 @@ function DagEditorInner() {
   useEffect(() => {
     if (isNew) {
       reset();
+      clearNodeStatuses();
       setDagName('');
-      // 自动添加一个节点在画布中央
       setTimeout(() => {
         addNode('agent', { x: 300, y: 200 });
         fitView({ padding: 0.2 });
       }, 100);
     } else if (id) {
-      // 加载现有 DAG
       fetch(`/api/dags/${id}`)
         .then((r) => r.json())
         .then((data) => {
           setDagName(data.name);
           if (data.definition) {
             loadFromDefinition(data.definition);
-            // 加载完成后适应视图
             setTimeout(() => {
               fitView({ padding: 0.2 });
             }, 100);
@@ -93,11 +102,10 @@ function DagEditorInner() {
           navigate('/dags');
         });
     }
-  }, [id, isNew, reset, addNode, loadFromDefinition, fitView, navigate]);
+  }, [id, isNew, reset, clearNodeStatuses, addNode, loadFromDefinition, fitView, navigate]);
 
   // 添加节点
   const handleAddNode = useCallback(() => {
-    // 在选中节点右侧添加，或在画布中央添加
     const lastNode = nodes[nodes.length - 1];
     const position = lastNode
       ? { x: lastNode.position.x + 250, y: lastNode.position.y }
@@ -105,67 +113,78 @@ function DagEditorInner() {
     addNode('agent', position);
   }, [nodes, addNode]);
 
-  // 保存 DAG
+  // 保存 DAG（含 edges）
   const handleSave = async () => {
     if (!dagName.trim()) {
-      alert('请输入 DAG 名称');
+      alert(t('editor.enter_name'));
       return;
     }
 
-    // Week 1: 单节点验证，确保至少有一个节点
     if (nodes.length === 0) {
-      alert('请至少添加一个节点');
+      alert(t('editor.add_one_node'));
       return;
     }
 
-    // 验证节点配置
     const firstNode = nodes[0];
-    if (!firstNode.data.agentId || !firstNode.data.prompt) {
-      alert('请配置节点的 Agent 和 Prompt');
-      setSelectedNode(firstNode.id);
+    if (!firstNode?.data.agentId || !firstNode.data.prompt) {
+      alert(t('editor.config_node'));
+      setSelectedNode(firstNode!.id);
       return;
     }
 
     setIsSaving(true);
     try {
       const definition = toDefinition();
-      const response = await fetch('/api/dags', {
-        method: 'POST',
+
+      const body = {
+        name: dagName,
+        definition: {
+          nodes: definition.nodes.map((n) => ({
+            id: n.id,
+            type: n.type,
+            agentId: n.data.agentId,
+            prompt: n.data.prompt,
+          })),
+          edges: definition.edges.map((e) => ({
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            sourceHandle: e.sourceHandle ?? null,
+            targetHandle: e.targetHandle ?? null,
+          })),
+        },
+      };
+
+      const isExisting = id && !isNew;
+      const response = await fetch(isExisting ? `/api/dags/${id}` : '/api/dags', {
+        method: isExisting ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: dagName,
-          definition: {
-            nodes: definition.nodes.map((n) => ({
-              id: n.id,
-              type: n.type,
-              agentId: n.data.agentId,
-              prompt: n.data.prompt,
-            })),
-            // Week 1: 无 edges
-          },
-        }),
+        body: JSON.stringify(body),
       });
 
-      if (!response.ok) throw new Error('Save failed');
+      if (!response.ok) throw new Error(t('editor.save_failed'));
 
       const result = await response.json();
-      navigate(`/dags/${result.id}`);
-      alert('保存成功');
+      if (!isExisting) {
+        navigate(`/dags/${result.id}`);
+      }
+      alert(t('editor.save_success'));
     } catch (error) {
-      alert('保存失败: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      alert(t('editor.save_failed') + ': ' + (error instanceof Error ? error.message : t('common.unknown_error')));
     } finally {
       setIsSaving(false);
     }
   };
 
-  // 运行 DAG
+  // 运行 DAG，轮询时写入节点级状态
   const handleRun = async () => {
     if (!id || isNew) {
-      alert('请先保存 DAG');
+      alert(t('editor.save_first'));
       return;
     }
 
     resetRun();
+    clearNodeStatuses();
     startRun();
 
     try {
@@ -173,33 +192,46 @@ function DagEditorInner() {
         method: 'POST',
       });
 
-      if (!response.ok) throw new Error('Run failed');
+      if (!response.ok) throw new Error(t('common.failed'));
 
       const result = await response.json();
 
-      // 轮询结果
+      // 轮询：同时获取 run 状态和节点级状态（已内嵌在同一响应中）
       const pollInterval = setInterval(async () => {
-        const statusRes = await fetch(`/api/dag-runs/${result.runId}`);
-        const status = await statusRes.json();
+        try {
+          const statusRes = await fetch(`/api/dag-runs/${result.runId}`);
+          const runData = await statusRes.json();
 
-        if (status.status === 'completed') {
-          clearInterval(pollInterval);
-          setRunResult(status.output || '执行完成');
-        } else if (status.status === 'failed') {
-          clearInterval(pollInterval);
-          setRunError(status.error || '执行失败');
+          // 写入节点级状态
+          if (Array.isArray(runData.nodes) && runData.nodes.length > 0) {
+            const statuses: Record<string, NodeExecutionStatus> = {};
+            for (const node of runData.nodes as NodeState[]) {
+              statuses[node.nodeId] = node.status;
+            }
+            setNodeStatuses(statuses);
+          }
+
+          if (runData.status === 'completed') {
+            clearInterval(pollInterval);
+            setRunResult(runData.output || t('common.success'));
+          } else if (runData.status === 'failed') {
+            clearInterval(pollInterval);
+            setRunError(runData.error || t('common.failed'));
+          }
+        } catch {
+          // 轮询网络错误时静默忽略，继续轮询
         }
       }, 1000);
 
-      // 30 秒超时
+      // 60 秒超时
       setTimeout(() => {
         clearInterval(pollInterval);
         if (isRunning) {
-          setRunError('执行超时');
+          setRunError(t('editor.timeout'));
         }
-      }, 30000);
+      }, 60000);
     } catch (error) {
-      setRunError(error instanceof Error ? error.message : '执行失败');
+      setRunError(error instanceof Error ? error.message : t('common.failed'));
     }
   };
 
@@ -211,7 +243,7 @@ function DagEditorInner() {
           type="text"
           value={dagName}
           onChange={(e) => setDagName(e.target.value)}
-          placeholder="输入 DAG 名称..."
+          placeholder={t('editor.name_placeholder')}
           className="flex-1 max-w-xs px-3 py-1.5 text-sm bg-gray-800 border border-gray-700 rounded text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
         />
 
@@ -219,7 +251,7 @@ function DagEditorInner() {
           onClick={handleAddNode}
           className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 text-white rounded border border-gray-700 transition-colors"
         >
-          + 添加节点
+          {t('editor.add_node')}
         </button>
 
         <button
@@ -227,7 +259,7 @@ function DagEditorInner() {
           disabled={isSaving}
           className="px-4 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded transition-colors"
         >
-          {isSaving ? '保存中...' : '保存'}
+          {isSaving ? t('editor.saving') : t('editor.save')}
         </button>
 
         <button
@@ -240,7 +272,7 @@ function DagEditorInner() {
               : 'bg-green-600 hover:bg-green-500 text-white'}
           `}
         >
-          {isRunning ? '运行中...' : '运行'}
+          {isRunning ? t('editor.running') : t('editor.run')}
         </button>
       </div>
 
@@ -280,9 +312,9 @@ function DagEditorInner() {
           {/* 运行结果 */}
           {runStatus !== 'idle' && (
             <div className="mt-4 p-3 rounded-lg border border-gray-700 bg-gray-800">
-              <p className="text-xs text-gray-400 mb-1">运行结果</p>
+              <p className="text-xs text-gray-400 mb-1">{t('editor.run_result')}</p>
               {runStatus === 'running' && (
-                <p className="text-sm text-blue-400">运行中...</p>
+                <p className="text-sm text-orange-400 animate-pulse">{t('editor.running')}</p>
               )}
               {runStatus === 'completed' && runOutput && (
                 <p className="text-sm text-green-400 line-clamp-4">{runOutput}</p>

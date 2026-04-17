@@ -3,6 +3,14 @@ import { getBullMqRedis } from '../redis/index.js';
 
 const DAG_EXECUTION_QUEUE = 'dag-execution';
 
+export interface DagEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string;
+  targetHandle?: string;
+}
+
 export interface DagExecutionJob {
   runId: string;
   dagId: string;
@@ -16,7 +24,7 @@ export interface DagExecutionJob {
       agentId: string;
       prompt: string;
     }>;
-    edges?: any[]; // v0.5 Week 1 不使用
+    edges?: DagEdge[];
   };
 }
 
