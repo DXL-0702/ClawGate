@@ -7,6 +7,7 @@ import ReactFlow, {
   useReactFlow,
   ReactFlowProvider,
   type NodeTypes,
+  MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -45,6 +46,7 @@ function DagEditorInner() {
     runStatus,
     runOutput,
     runError,
+    nodeStatuses,
     addNode,
     setSelectedNode,
     onNodesChange,
@@ -56,6 +58,7 @@ function DagEditorInner() {
     resetRun,
     setNodeStatuses,
     clearNodeStatuses,
+    updateEdgesWithStatus,
     toDefinition,
     loadFromDefinition,
     reset,
@@ -65,6 +68,12 @@ function DagEditorInner() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [dagName, setDagName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('clawgate-api-key') || '');
+
+  // 根据节点状态更新连线样式（执行时流动效果）
+  useEffect(() => {
+    updateEdgesWithStatus(nodeStatuses);
+  }, [nodeStatuses, updateEdgesWithStatus]);
 
   // 加载 Agents 列表
   useEffect(() => {
@@ -87,7 +96,9 @@ function DagEditorInner() {
         fitView({ padding: 0.2 });
       }, 100);
     } else if (id) {
-      fetch(`/api/dags/${id}`)
+      fetch(`/api/dags/${id}`, {
+        headers: apiKey ? { 'X-API-Key': apiKey } : {},
+      })
         .then((r) => r.json())
         .then((data) => {
           setDagName(data.name);
@@ -158,7 +169,10 @@ function DagEditorInner() {
       const isExisting = id && !isNew;
       const response = await fetch(isExisting ? `/api/dags/${id}` : '/api/dags', {
         method: isExisting ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+        },
         body: JSON.stringify(body),
       });
 
@@ -190,6 +204,7 @@ function DagEditorInner() {
     try {
       const response = await fetch(`/api/dags/${id}/run`, {
         method: 'POST',
+        headers: apiKey ? { 'X-API-Key': apiKey } : {},
       });
 
       if (!response.ok) throw new Error(t('common.failed'));
@@ -199,7 +214,9 @@ function DagEditorInner() {
       // 轮询：同时获取 run 状态和节点级状态（已内嵌在同一响应中）
       const pollInterval = setInterval(async () => {
         try {
-          const statusRes = await fetch(`/api/dag-runs/${result.runId}`);
+          const statusRes = await fetch(`/api/dag-runs/${result.runId}`, {
+            headers: apiKey ? { 'X-API-Key': apiKey } : {},
+          });
           const runData = await statusRes.json();
 
           // 写入节点级状态
@@ -237,42 +254,100 @@ function DagEditorInner() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* 顶部工具栏 */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-900/50">
-        <input
-          type="text"
-          value={dagName}
-          onChange={(e) => setDagName(e.target.value)}
-          placeholder={t('editor.name_placeholder')}
-          className="flex-1 max-w-xs px-3 py-1.5 text-sm bg-gray-800 border border-gray-700 rounded text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
-        />
+      {/* 顶部工具栏 - 图标化紧凑设计 */}
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-800/80 bg-gradient-to-b from-gray-900 to-gray-900/95">
+        {/* DAG 名称输入 */}
+        <div className="flex-1 max-w-xs">
+          <input
+            type="text"
+            value={dagName}
+            onChange={(e) => setDagName(e.target.value)}
+            placeholder={t('editor.name_placeholder')}
+            className="w-full px-3 py-2 text-sm bg-gray-800/80 border border-gray-700/60 rounded-lg text-white placeholder-gray-500 focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 focus:outline-none transition-all shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)]"
+          />
+        </div>
 
+        {/* 分隔线 */}
+        <div className="h-6 w-px bg-gray-800 mx-1" />
+
+        {/* API Key 输入（临时） */}
+        <div className="relative group">
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => {
+              setApiKey(e.target.value);
+              localStorage.setItem('clawgate-api-key', e.target.value);
+            }}
+            placeholder="API Key"
+            className="w-32 px-3 py-2 text-xs bg-gray-800/60 border border-gray-700/50 rounded-lg text-white placeholder-gray-600 focus:border-amber-500/40 focus:outline-none transition-all"
+            title="留空=个人模式，输入=团队模式"
+          />
+          {/* tooltip */}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-1 bg-gray-800 text-[10px] text-gray-400 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-gray-700">
+            团队模式 API Key（可选）
+          </div>
+        </div>
+
+        {/* 分隔线 */}
+        <div className="h-6 w-px bg-gray-800 mx-1" />
+
+        {/* 添加节点按钮 - 次要操作 */}
         <button
           onClick={handleAddNode}
-          className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 text-white rounded border border-gray-700 transition-colors"
+          className="group flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-300 bg-gray-800/60 border border-gray-700/50 rounded-lg hover:bg-gray-700/60 hover:text-white hover:border-gray-600 transition-all duration-200"
+          title="添加节点"
         >
-          {t('editor.add_node')}
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+          </svg>
+          <span className="hidden sm:inline">{t('editor.add_node')}</span>
         </button>
 
+        {/* 保存按钮 - 沉稳固态 */}
         <button
           onClick={handleSave}
           disabled={isSaving}
-          className="px-4 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded transition-colors"
+          className="group flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-slate-600 hover:bg-slate-500 disabled:bg-slate-700/50 disabled:text-slate-400 border border-slate-500 rounded-lg transition-all duration-200 shadow-sm"
+          title="保存工作流"
         >
-          {isSaving ? t('editor.saving') : t('editor.save')}
+          {isSaving ? (
+            <span className="w-3.5 h-3.5 border-2 border-slate-300/30 border-t-white rounded-full animate-spin" />
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+          <span className="hidden sm:inline">{isSaving ? t('editor.saving') : t('editor.save')}</span>
         </button>
 
+        {/* 运行按钮 - 亮橙主题色，强调 */}
         <button
           onClick={handleRun}
           disabled={isRunning || isNew}
           className={`
-            px-4 py-1.5 text-sm rounded transition-colors
+            group flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg border transition-all duration-200 shadow-sm
             ${isRunning
-              ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-              : 'bg-green-600 hover:bg-green-500 text-white'}
+              ? 'bg-gray-800 text-gray-500 cursor-not-allowed border-gray-700'
+              : isNew
+              ? 'bg-amber-600/50 text-amber-200/50 cursor-not-allowed border-amber-500/30'
+              : 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500 hover:border-amber-400 hover:shadow-[0_0_20px_rgba(245,158,11,0.3)]'}
           `}
+          title={isNew ? '请先保存工作流' : '运行工作流'}
         >
-          {isRunning ? t('editor.running') : t('editor.run')}
+          {isRunning ? (
+            <>
+              <span className="w-3.5 h-3.5 border-2 border-amber-400/30 border-t-white rounded-full animate-spin" />
+              <span>{t('editor.running')}</span>
+            </>
+          ) : (
+            <>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+              </svg>
+              <span>{t('editor.run')}</span>
+            </>
+          )}
         </button>
       </div>
 
@@ -292,14 +367,29 @@ function DagEditorInner() {
             fitView
             attributionPosition="bottom-left"
             className="bg-gray-900"
+            defaultEdgeOptions={{
+              type: 'smoothstep',
+              style: { stroke: '#6b7280', strokeWidth: 2 },
+              markerEnd: { type: MarkerType.ArrowClosed, color: '#6b7280' },
+              animated: false,
+            }}
           >
-            <Background color="#374151" gap={16} size={1} />
-            <Controls className="!bg-gray-800 !border-gray-700" />
+            <Background
+              color="#4b5563"
+              gap={20}
+              size={1}
+              style={{
+                maskImage: 'radial-gradient(circle at center, black 40%, transparent 85%)',
+                opacity: 0.12,
+              }}
+            />
+            <Controls className="!bg-gray-800/90 !border-gray-700 !backdrop-blur-sm" />
             <MiniMap
-              className="!bg-gray-800 !border-gray-700"
-              maskColor="#11182780"
+              className="!bg-gray-800/90 !border-gray-700 !backdrop-blur-sm"
+              maskColor="#11182790"
               nodeColor={(node) => {
-                return node.id === selectedNodeId ? '#3b82f6' : '#4b5563';
+                // 亮橙主题：选中=amber-500，默认=gray-600
+                return node.id === selectedNodeId ? '#f59e0b' : '#4b5563';
               }}
             />
           </ReactFlow>

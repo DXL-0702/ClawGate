@@ -41,6 +41,10 @@ export {
   updateDagCronJob,
 } from './dag/queue.js';
 export type { DagExecutionJob, DagEdge as DagJobEdge } from './dag/queue.js';
+
+// 双模式认证
+export { getAuthContext, PERSONAL_TEAM_ID } from './auth/index.js';
+export type { AuthContext } from './auth/index.js';
 export {
   startDagWorker,
   stopDagWorker,

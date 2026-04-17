@@ -8,6 +8,7 @@ import {
   type NodeChange,
   type EdgeChange,
   type Connection,
+  MarkerType,
 } from 'reactflow';
 
 export interface AgentNodeData {
@@ -134,9 +135,43 @@ export const useDagStore = create<DagStore>((set, get) => ({
   },
 
   onConnect: (connection) => {
+    // 新连线使用亮橙主题协调配色
+    const newEdge = {
+      ...connection,
+      type: 'smoothstep',
+      style: { stroke: '#6b7280', strokeWidth: 1.5 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#6b7280' },
+      animated: false,
+    };
     set({
-      edges: addEdge(connection, get().edges),
+      edges: addEdge(newEdge, get().edges),
     });
+  },
+
+  // 根据节点状态更新连线样式（用于执行时流动效果）
+  updateEdgesWithStatus: (nodeStatuses: Record<string, string>) => {
+    const currentEdges = get().edges;
+    const updatedEdges = currentEdges.map((edge) => {
+      const sourceStatus = nodeStatuses[edge.source];
+      const isExecuted = sourceStatus === 'completed' || sourceStatus === 'running';
+      const isRunning = sourceStatus === 'running';
+
+      return {
+        ...edge,
+        // 上游已执行或正在执行：连线变亮
+        style: {
+          stroke: isExecuted ? '#64748b' : '#4b5563', // slate-500 : gray-600
+          strokeWidth: isExecuted ? 2.5 : 1.5,
+        },
+        // 正在执行时：流动动画
+        animated: isRunning,
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: isExecuted ? '#64748b' : '#4b5563',
+        },
+      };
+    });
+    set({ edges: updatedEdges });
   },
 
   startRun: () => {

@@ -4,9 +4,12 @@ import { getDb, schema } from '../db/index.js';
 import { eq, and } from 'drizzle-orm';
 import { executeAgentNode, executeAgentNodesParallel } from './gateway-executor.js';
 import { getGatewayPool } from '../gateway/pool.js';
+import { GatewayClient } from '../gateway/index.js';
 import type { DagExecutionJob } from './queue.js';
 import { topologicalSort } from './topo-sort.js';
 import { substituteVariables } from './variable-subst.js';
+import { PERSONAL_TEAM_ID } from '../auth/index.js';
+import { configReader } from '../config/index.js';
 
 let dagWorker: Worker | null = null;
 
@@ -15,8 +18,6 @@ let dagWorker: Worker | null = null;
  * Wave 3: 支持多节点拓扑排序执行（线性链 + 并行批次 + 变量替换）
  */
 export function startDagWorker(): Worker {
-  const connection = getBullMqRedis();
-
   dagWorker = new Worker<DagExecutionJob>(
     'dag-execution',
     async (job: Job<DagExecutionJob>) => {
@@ -38,7 +39,7 @@ export function startDagWorker(): Worker {
 
       console.log(`[DAG Worker] Starting run ${runId} for DAG ${dagId} (triggeredBy: ${triggeredBy}, env: ${environment})`);
 
-      // 获取 DAG 所属团队（用于 GatewayPool 选择实例）
+      // 获取 DAG 所属团队（用于判断个人/团队模式）
       const [dag] = await db
         .select({ teamId: schema.dags.teamId })
         .from(schema.dags)
@@ -48,7 +49,41 @@ export function startDagWorker(): Worker {
         throw new Error(`DAG ${dagId} not found`);
       }
 
-      const pool = getGatewayPool();
+      // 判断模式：个人模式（teamId 为 null 或 'local'）vs 团队模式
+      const isPersonalMode = !dag.teamId || dag.teamId === PERSONAL_TEAM_ID;
+
+      // 获取 Gateway 连接
+      let gateway: GatewayClient;
+
+      if (isPersonalMode) {
+        // 个人模式：直连本地 OpenClaw Gateway
+        const cfg = configReader.get();
+        console.log(`[DAG Worker] Personal mode: connecting to local Gateway ${cfg.gatewayUrl}`);
+
+        gateway = new GatewayClient({
+          url: cfg.gatewayUrl,
+          token: cfg.gatewayToken,
+        });
+
+        try {
+          await gateway.connect();
+          console.log(`[DAG Worker] Personal mode: local Gateway connected`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new Error(`Failed to connect to local OpenClaw Gateway: ${msg}`);
+        }
+      } else {
+        // 团队模式：使用 GatewayPool 选择最优实例
+        const pool = getGatewayPool();
+        const instanceId = await pool.selectForTask(dag.teamId!, { environment });
+        if (!instanceId) {
+          throw new Error(
+            `No available instance for environment "${environment}". Please register an instance or check health.`
+          );
+        }
+        gateway = await pool.getConnection(instanceId);
+        console.log(`[DAG Worker] Team mode: selected instance ${instanceId} for run ${runId}`);
+      }
 
       try {
         // 1. 更新 dag_runs 状态为 running
@@ -78,28 +113,15 @@ export function startDagWorker(): Worker {
 
         console.log(`[DAG Worker] Execution plan: ${batches.map((b) => `[${b.join(',')}]`).join(' → ')}`);
 
-        // 4. 选择 Gateway 实例（整个 run 复用同一实例）
-        const instanceId = await pool.selectForTask(dag.teamId, { environment });
-        if (!instanceId) {
-          throw new Error(
-            `No available instance for environment "${environment}". Please register an instance or check health.`
-          );
-        }
-        const gateway = await pool.getConnection(instanceId);
-        console.log(`[DAG Worker] Selected instance ${instanceId} for run ${runId}`);
-
         // 5. 按批次执行
-        // context 在批次间流动，存储各节点输出供变量替换使用
         const context: Record<string, string> = {};
         let runFailed = false;
         let failedNodeId: string | undefined;
         let failedError: string | undefined;
 
-        // 构建 nodeId → 节点定义的映射，方便批次内快速查找
         const nodeMap = new Map(definition.nodes.map((n) => [n.id, n]));
 
         for (const batch of batches) {
-          // 5a. 若已有节点失败，将本批次所有节点标记为 skipped
           if (runFailed) {
             const skippedAt = new Date().toISOString();
             for (const nodeId of batch) {
@@ -114,7 +136,6 @@ export function startDagWorker(): Worker {
             continue;
           }
 
-          // 5b. 将本批次所有节点标记为 running
           const batchStartedAt = new Date().toISOString();
           for (const nodeId of batch) {
             await db
@@ -126,9 +147,7 @@ export function startDagWorker(): Worker {
               ));
           }
 
-          // 5c. 执行本批次
           if (batch.length === 1) {
-            // 单节点：直接执行，避免并行函数的额外开销
             const nodeId = batch[0]!;
             const node = nodeMap.get(nodeId)!;
             const resolvedPrompt = substituteVariables(node.prompt, context);
@@ -167,7 +186,6 @@ export function startDagWorker(): Worker {
               console.error(`[DAG Worker] Node ${nodeId} failed: ${result.error}`);
             }
           } else {
-            // 多节点批次：并行执行（带并发控制）
             const parallelNodes = batch.map((nodeId) => {
               const node = nodeMap.get(nodeId)!;
               return {
@@ -196,7 +214,6 @@ export function startDagWorker(): Worker {
                     eq(schema.dagNodeStates.nodeId, nodeId)
                   ));
               } else {
-                // 批次内任一节点失败，整批标记，后续批次全部 skipped
                 if (!runFailed) {
                   runFailed = true;
                   failedNodeId = nodeId;
@@ -215,7 +232,6 @@ export function startDagWorker(): Worker {
           }
         }
 
-        // 6. 收尾：更新 dag_runs 状态
         const runEndedAt = new Date().toISOString();
 
         if (runFailed) {
@@ -231,7 +247,6 @@ export function startDagWorker(): Worker {
           return { runId, status: 'failed', failedNodeId };
         }
 
-        // 全部成功：dag_runs output 记录末批次最后节点的输出
         const lastBatch = batches[batches.length - 1] ?? [];
         const lastNodeId = lastBatch[lastBatch.length - 1];
         const finalOutput = lastNodeId ? (context[lastNodeId] ?? null) : null;
@@ -244,27 +259,27 @@ export function startDagWorker(): Worker {
         console.log(`[DAG Worker] Run ${runId} completed (${definition.nodes.length} nodes)`);
         return { runId, status: 'completed' };
 
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-        console.error(`[DAG Worker] Run ${runId} failed:`, errorMsg);
-
-        const failedAt = new Date().toISOString();
-        await db
-          .update(schema.dagRuns)
-          .set({ status: 'failed', error: errorMsg, endedAt: failedAt })
-          .where(eq(schema.dagRuns.id, runId));
-
-        throw error;
+      } finally {
+        // 个人模式：清理 GatewayClient 连接
+        if (isPersonalMode) {
+          try {
+            gateway.disconnect();
+            console.log(`[DAG Worker] Personal mode: disconnected from local Gateway`);
+          } catch {
+            // 忽略清理错误
+          }
+        }
+        // 团队模式：GatewayPool 的连接由连接池自动管理
       }
     },
-    { connection }
+    { connection: getBullMqRedis() }
   );
 
-  dagWorker.on('completed', (job) => {
+  dagWorker.on('completed', (job: Job) => {
     console.log(`[DAG Worker] Job ${job.id} completed`);
   });
 
-  dagWorker.on('failed', (job, err) => {
+  dagWorker.on('failed', (job: Job | undefined, err: Error) => {
     console.error(`[DAG Worker] Job ${job?.id} failed:`, err.message);
   });
 

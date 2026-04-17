@@ -47,7 +47,7 @@ export const routingLogs = sqliteTable('routing_logs', {
 export const dags = sqliteTable('dags', {
   id: text('id').primaryKey(),              // uuid
   name: text('name').notNull(),
-  teamId: text('team_id').notNull().references(() => teams.id), // 所属团队
+  teamId: text('team_id').references(() => teams.id), // 所属团队，nullable 支持个人模式
   definition: text('definition').notNull(), // JSON: { nodes: [], edges: [] }
   // v0.5 Wave 2: 触发器配置
   trigger: text('trigger', { enum: ['manual', 'cron', 'webhook'] })
@@ -68,6 +68,7 @@ export const dags = sqliteTable('dags', {
 export const dagRuns = sqliteTable('dag_runs', {
   id: text('id').primaryKey(),              // uuid
   dagId: text('dag_id').notNull().references(() => dags.id),
+  teamId: text('team_id'),                  // 关联团队，用于查询隔离（nullable 支持个人模式）
   status: text('status', { enum: ['pending', 'running', 'completed', 'failed'] })
     .notNull()
     .default('pending'),

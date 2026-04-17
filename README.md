@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="./docs/assets/logo.png" alt="ClawGate" width="120" />
-</p>
-
-<h1 align="center">ClawGate</h1>
+<h1 align="center" style="font-size: 64px;">ClawGate</h1>
 
 <p align="center">
   <strong>Intelligent Resource Scheduling Platform for OpenClaw</strong><br/>
