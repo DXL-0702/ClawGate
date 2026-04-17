@@ -120,7 +120,7 @@ export const instanceRoutes: FastifyPluginAsync = async (app) => {
   // POST /api/instances/:id/heartbeat — 心跳上报
   app.post<{ Params: { id: string }; Body: HeartbeatBody }>('/instances/:id/heartbeat', async (req, reply) => {
     try {
-      await getAuthContext(req); // 校验（团队模式）或直接通过（个人模式）
+      await getAuthContext(req.headers); // 校验（团队模式）或直接通过（个人模式）
       const db = getDb();
       const now = new Date().toISOString();
 
