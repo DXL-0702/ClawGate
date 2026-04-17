@@ -12,6 +12,7 @@
 <p align="center">
   <a href="./README.md">English</a> ·
   <a href="./architecture.md">架构文档</a> ·
+  <a href="./docs/deployment/single-node.md">部署指南</a> ·
   <a href="./docs/progress/DONE.md">已完成功能</a> ·
   <a href="./docs/progress/NEXT.md">下一步计划</a>
 </p>
@@ -40,6 +41,8 @@ ClawGate 是 [OpenClaw](https://github.com/openclaw)（本地 AI Agent 运行时
 
 ## ⚡ 快速开始
 
+**部署方式**: [单点部署](./docs/deployment/single-node.md)（裸机或 Docker）· [团队部署](./docs/deployment/team.md)（中央服务器 + 多成员）
+
 ### 前置要求
 
 | 依赖 | 版本 |
@@ -63,6 +66,8 @@ docker compose up -d   # 启动 Redis、Qdrant、Ollama
 
 pnpm dev            # 启动所有服务
 ```
+
+纯 Docker 部署见 [单点部署指南](./docs/deployment/single-node.md)。
 
 ### 首次使用
 

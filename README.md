@@ -12,6 +12,7 @@
 <p align="center">
   <a href="./README.zh-CN.md">中文文档</a> ·
   <a href="./architecture.md">Architecture</a> ·
+  <a href="./docs/deployment/single-node.md">Deploy</a> ·
   <a href="./docs/progress/DONE.md">What's Built</a> ·
   <a href="./docs/progress/NEXT.md">What's Next</a>
 </p>
@@ -40,6 +41,8 @@ ClawGate is an **infrastructure enhancement layer** for [OpenClaw](https://githu
 
 ## ⚡ Quick Start
 
+**Deploy Options**: [Single-node](./docs/deployment/single-node.md) (bare metal or Docker) · [Team](./docs/deployment/team.md) (central server + multi-member)
+
 ### Prerequisites
 
 | Requirement | Version |
@@ -63,6 +66,8 @@ docker compose up -d   # start Redis, Qdrant, Ollama
 
 pnpm dev            # start all services
 ```
+
+For Docker-only deployment, see [Single-node Deploy Guide](./docs/deployment/single-node.md).
 
 ### First Steps
 
