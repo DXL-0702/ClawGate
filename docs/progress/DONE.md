@@ -454,7 +454,7 @@ POST /api/dags/:id/webhook?token=wrong
 
 ---
 
-## v1.0 Phase 3 — 健康面板与告警（已部分实现）
+## v1.0 Phase 3 — 健康面板与告警（已完成）
 
 ### 已完成
 
@@ -466,10 +466,11 @@ POST /api/dags/:id/webhook?token=wrong
 - **健康面板 API**（`routes/health-overview.ts`）：
   - `GET /api/health/overview` — 实例聚合统计（total/online/offline/error by environment）+ 各 online 实例实时负载
   - `GET /api/health/trends` — 最近 1 小时负载趋势（12 个 5 分钟时间点，avgCpu/avgMemory/totalSessions）
-
-### 待实现
-
-- 健康检查定时任务（BullMQ，每分钟检查超时实例 → 标记 offline）
-- GatewayPool 连接清理（offline 超 5 分钟 → `pool.disconnect(instanceId)`）
-- 告警通知接口（预留 Webhook 通知）
+- **健康检查定时任务**（`queue/health-check.ts`）：
+  - BullMQ JobScheduler 每分钟执行
+  - 检查 Redis 心跳数据（TTL 20s），无心跳 → 标记 `offline`
+  - 离线实例自动写入 `alerts` 表（severity: critical）
+  - GatewayPool.disconnect() 清理僵尸 WebSocket 连接
+  - 长时间（>30min）offline 实例日志告警
+  - `server/index.ts` 启动时注册 Scheduler + Worker，SIGTERM/SIGINT 优雅清理
 

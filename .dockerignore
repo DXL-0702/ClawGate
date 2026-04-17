@@ -1,0 +1,19 @@
+# Global ignore for builds that use repo-root as build context
+node_modules
+**/node_modules
+dist
+**/dist
+.turbo
+**/.turbo
+target
+**/target
+__pycache__
+**/__pycache__
+*.log
+.DS_Store
+.git
+.github
+docs
+clawgate.yaml
+clawgate.db
+clawgate.db-*

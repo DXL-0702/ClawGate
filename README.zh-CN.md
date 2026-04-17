@@ -52,7 +52,7 @@ ClawGate 是 [OpenClaw](https://github.com/openclaw)（本地 AI Agent 运行时
 ### 安装与启动
 
 ```bash
-git clone https://github.com/DXL_0702/ClawGate.git
+git clone https://github.com/DXL-0702/ClawGate.git
 cd ClawGate
 
 pnpm install        # 安装 Node.js 依赖
@@ -167,7 +167,7 @@ ClawGate/
 | v0.3 | ✅ | 四层路由引擎、OpenAI 兼容 API，L1–L4 全链路已验证 |
 | v0.5 | ✅ | DAG 工作流（Wave 1-3）：多节点执行、Cron/Webhook 触发、变量传递、可视化编辑器 |
 | v0.6 | ✅ | DAG 进阶：执行历史、条件分支节点、延迟节点、输出缓存（Redis opt-in，50KB 保护） |
-| v1.0 | 🔜 | 团队部署（Phase 2 核心已完成）· 健康面板（Phase 3 进行中）· SDK · 自动更新 |
+| v1.0 | 🔜 | 团队部署（Phase 2 已完成）· 健康面板 + 自动离线检测（Phase 3 核心已完成）· SDK · 自动更新 |
 
 **v0.6 Wave 4 交付结果（2026-04-17）**：
 - ✅ 15 场景集成测试套件（46/46 全部通过），覆盖条件+延迟组合场景

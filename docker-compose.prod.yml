@@ -1,0 +1,154 @@
+# ClawGate 生产 / 体验部署
+#
+# 使用方式：
+#   curl -O https://raw.githubusercontent.com/DXL-0702/ClawGate/main/docker-compose.prod.yml
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# 首次启动会自动：
+#   - 拉取 ClawGate 三个官方镜像（Node + Rust + Python）
+#   - 启动 Redis / Qdrant / Ollama 基础设施
+#   - 预拉取 Ollama 模型（nomic-embed-text + qwen2.5:3b）
+#   - 生成默认 clawgate.yaml
+#
+# 访问：http://localhost:3000
+# OpenAI 兼容端点：http://localhost:3000/v1/chat/completions
+#
+# 如需连接 OpenClaw，参考文档 docs/deployment/single-node.md 的「连接 OpenClaw」章节。
+
+services:
+  # ── 基础设施 ────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: clawgate-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: clawgate-qdrant
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/localhost/6333' 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: clawgate-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── Ollama 模型预热（一次性容器） ───────────────────────────
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: clawgate-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: >
+      sh -c "
+        echo 'Pulling nomic-embed-text (embedding model, ~274MB)...' &&
+        ollama pull nomic-embed-text &&
+        echo 'Pulling qwen2.5:3b (sentinel model, ~1.9GB)...' &&
+        ollama pull qwen2.5:3b &&
+        echo 'Models ready.'
+      "
+    restart: "no"
+
+  # ── ClawGate 三个服务 ──────────────────────────────────────
+  router:
+    image: ghcr.io/dxl-0702/clawgate-router:latest
+    container_name: clawgate-router
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - INTENT_URL=http://intent:8000
+      - SIMPLE_MODEL=qwen2.5:3b
+      - COMPLEX_MODEL=claude-sonnet-4-6
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  intent:
+    image: ghcr.io/dxl-0702/clawgate-intent:latest
+    container_name: clawgate-intent
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_URL=http://ollama:11434
+      - SIMPLE_MODEL=qwen2.5:3b
+      - COMPLEX_MODEL=claude-sonnet-4-6
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  server:
+    image: ghcr.io/dxl-0702/clawgate-server:latest
+    container_name: clawgate-server
+    ports:
+      - "3000:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      router:
+        condition: service_started
+      intent:
+        condition: service_started
+    environment:
+      # OpenClaw 可选模式：无 OpenClaw 也能使用智能路由 + OpenAI 兼容端点
+      - CLAWGATE_REQUIRE_OPENCLAW=${CLAWGATE_REQUIRE_OPENCLAW:-false}
+      - REDIS_URL=redis://redis:6379
+      - ROUTER_URL=http://router:3001
+      - OLLAMA_URL=http://ollama:11434
+      # Provider API Keys（可选）
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # OpenClaw 连接（仅在 CLAWGATE_REQUIRE_OPENCLAW=true 或主机装了 OpenClaw 时生效）
+      # macOS/Windows 用 host.docker.internal；Linux 用 host 网络或实际 IP
+    volumes:
+      - clawgate_data:/app/data
+      # 若主机装了 OpenClaw，取消下行注释映射配置目录（只读）
+      # - ${HOME}/.openclaw:/home/clawgate/.openclaw:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  qdrant_data:
+  ollama_data:
+  clawgate_data:

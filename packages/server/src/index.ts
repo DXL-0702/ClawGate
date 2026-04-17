@@ -1,8 +1,10 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
+import { existsSync } from 'fs';
+import { join } from 'path';
 import {
-  configReader, GatewayClient, initDb, loadYamlConfig,
+  configReader, GatewayClient, initDb, loadYamlConfig, generateDefaultConfig,
   connectRedis, disconnectRedis, disconnectBullMqRedis,
   initDagQueue, startDagWorker, stopDagWorker,
   startHealthCheckScheduler, startHealthCheckWorker, stopHealthCheck,
@@ -22,6 +24,7 @@ import { teamRoutes } from './routes/teams.js';
 import { memberRoutes } from './routes/members.js';
 import { healthOverviewRoutes } from './routes/health-overview.js';
 import { alertRoutes } from './routes/alerts.js';
+import { statsRoutes } from './routes/stats.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -36,6 +39,17 @@ await app.register(websocket);
 
 await configReader.load();
 configReader.watch().catch(() => {});
+
+// YAML 自生成：首次启动若配置不存在，生成默认 clawgate.yaml
+const yamlPath = join(process.cwd(), 'clawgate.yaml');
+if (!existsSync(yamlPath)) {
+  try {
+    await generateDefaultConfig(yamlPath);
+    app.log.info(`Generated default clawgate.yaml at ${yamlPath}`);
+  } catch (err) {
+    app.log.warn({ err }, 'Failed to generate default clawgate.yaml');
+  }
+}
 await loadYamlConfig();
 
 // 初始化 SQLite
@@ -47,14 +61,24 @@ await connectRedis();
 const cfg = configReader.get();
 const gateway = new GatewayClient({ url: cfg.gatewayUrl, token: cfg.gatewayToken });
 
-// Connect gateway FIRST before starting Worker
+// OpenClaw 可选模式：默认不要求 OpenClaw 可用（用户可只使用智能路由/OpenAI 兼容端点）
+const requireOpenClaw = process.env['CLAWGATE_REQUIRE_OPENCLAW'] === 'true';
+let openclawConnected = false;
+
 try {
   await gateway.connect();
+  openclawConnected = true;
   app.log.info('OpenClaw Gateway connected successfully');
 } catch (err) {
   const error = err instanceof Error ? err.message : String(err);
-  app.log.error({ err: error }, 'OpenClaw Gateway connection failed');
-  app.log.warn('Gateway not available — DAG execution will fail');
+  if (requireOpenClaw) {
+    app.log.error({ err: error }, 'OpenClaw Gateway required but unreachable — exiting');
+    process.exit(1);
+  }
+  app.log.warn({ err: error },
+    'OpenClaw Gateway unavailable — running in standalone mode. ' +
+    'Smart routing and /v1/chat/completions remain available. ' +
+    'Agent/Session/DAG features will be disabled.');
 }
 
 // 初始化 DAG 执行队列
@@ -127,6 +151,7 @@ await app.register(teamRoutes, { prefix: '/api' });
 await app.register(memberRoutes, { prefix: '/api' });
 await app.register(healthOverviewRoutes, { prefix: '/api' });
 await app.register(alertRoutes, { prefix: '/api' });
+await app.register(statsRoutes, { prefix: '/api' });
 
 try {
   await app.listen({ port: 3000, host: '0.0.0.0' });

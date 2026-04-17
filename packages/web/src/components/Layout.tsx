@@ -55,6 +55,13 @@ export default function Layout({ children }: { children: ReactNode }) {
             </svg>
             {t('nav.dags')}
           </NavLink>
+
+          <NavLink to="/stats" className={navCls}>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 13h4v8H3zM10 9h4v12h-4zM17 5h4v16h-4z" />
+            </svg>
+            {t('nav.stats')}
+          </NavLink>
         </nav>
 
         {/* 底部状态栏 */}

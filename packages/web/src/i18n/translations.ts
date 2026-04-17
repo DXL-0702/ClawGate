@@ -8,6 +8,7 @@ const translations = {
     'nav.sessions': 'Sessions',
     'nav.router': 'Router',
     'nav.dags': 'DAG 工作流',
+    'nav.stats': '数据统计',
     'nav.system_online': '系统在线',
 
     // 通用
@@ -132,6 +133,25 @@ const translations = {
     'run_detail.error': '错误',
     'run_detail.nodes_timeline': '节点执行时间线',
     'run_detail.no_nodes': '暂无节点执行数据',
+
+    // 统计 Dashboard
+    'stats.title': '数据统计',
+    'stats.routing_distribution': '路由层分布',
+    'stats.cost_trend': '成本趋势（近 7 日）',
+    'stats.model_usage': '模型用量',
+    'stats.circuit_status': '熔断器状态',
+    'stats.total_requests': '总请求',
+    'stats.avg_latency': '平均延迟',
+    'stats.today_cost': '今日花费',
+    'stats.budget_used': '预算使用',
+    'stats.requests': '请求数',
+    'stats.percentage': '占比',
+    'stats.usd': 'USD',
+    'stats.tokens': 'Tokens',
+    'stats.no_data': '暂无数据',
+    'stats.circuit_closed': '正常',
+    'stats.circuit_open': '熔断',
+    'stats.circuit_halfopen': '探测中',
   },
 
   en: {
@@ -141,6 +161,7 @@ const translations = {
     'nav.sessions': 'Sessions',
     'nav.router': 'Router',
     'nav.dags': 'DAG Workflows',
+    'nav.stats': 'Stats',
     'nav.system_online': 'System Online',
 
     // Common
@@ -265,6 +286,25 @@ const translations = {
     'run_detail.error': 'Error',
     'run_detail.nodes_timeline': 'Node Execution Timeline',
     'run_detail.no_nodes': 'No node execution data',
+
+    // Stats Dashboard
+    'stats.title': 'Stats Dashboard',
+    'stats.routing_distribution': 'Routing Layer Distribution',
+    'stats.cost_trend': 'Cost Trend (Last 7 Days)',
+    'stats.model_usage': 'Model Usage',
+    'stats.circuit_status': 'Circuit Breaker Status',
+    'stats.total_requests': 'Total Requests',
+    'stats.avg_latency': 'Avg Latency',
+    'stats.today_cost': 'Today Cost',
+    'stats.budget_used': 'Budget Used',
+    'stats.requests': 'Requests',
+    'stats.percentage': 'Percentage',
+    'stats.usd': 'USD',
+    'stats.tokens': 'Tokens',
+    'stats.no_data': 'No data yet',
+    'stats.circuit_closed': 'Closed',
+    'stats.circuit_open': 'Open',
+    'stats.circuit_halfopen': 'Half-Open',
   },
 } as const;
 

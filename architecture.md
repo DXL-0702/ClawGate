@@ -431,5 +431,5 @@ graph TB
 ---
 
 **Last Updated**: 2026-04-17
-**Version**: v0.6 (Wave 4 done: condition branch, delay node, output cache, 46-test suite; v1.0 Phase 2 done, Phase 3 in progress)
-**Next**: v1.0 Phase 3 — Health check scheduled task (BullMQ auto-offline detection + GatewayPool disconnect cleanup)
+**Version**: v0.6 (Wave 4 done; v1.0 Phase 2 done, Phase 3 core done: health check scheduler + auto-offline + alerts + GatewayPool cleanup)
+**Next**: v1.0 Phase 1 (Rust traffic layer) or Phase 4 (ecosystem) or Phase 5 (documentation)

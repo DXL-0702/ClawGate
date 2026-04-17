@@ -1,0 +1,23 @@
+# ClawGate configuration file
+# See: https://github.com/clawgate/clawgate
+
+gateway:
+  openclaw_url: ws://127.0.0.1:18789
+  port: 3000
+router:
+  l1_ttl: 3600
+  l2_threshold: 0.75
+  l3_model: qwen2.5:3b
+providers:
+  - name: anthropic
+    model: claude-sonnet-4-6
+    tags:
+      - complex
+      - code
+  - name: ollama
+    model: qwen2.5:7b
+    tags:
+      - simple
+      - chat
+budgets:
+  alert_threshold: 0.8

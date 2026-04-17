@@ -120,23 +120,16 @@
 
 ---
 
-## 待完成：v1.0 Phase 3 — 健康检查定时任务（剩余）
+## 已完成：v1.0 Phase 3 — 健康检查定时任务 ✅
 
-**已完成**：alerts 表 + CRUD API、健康面板总览 + 趋势 API
+**状态**：全部完成
 
-**待实现**：
-
-#### Step 1. BullMQ 定时任务（每分钟）
-- 遍历所有 `status = 'online'` 的 instances
-- 检查 Redis `instance:load:{id}` 是否存在
-- 无负载数据（超时 20s）→ 标记为 `offline`
-
-#### Step 2. 连接清理
-- 对已标记 `offline` 且 `lastHeartbeatAt > 5 分钟前` 的实例
-- 调用 `GatewayPool.disconnect(instanceId)` 释放 WebSocket
-
-#### Step 3. 告警通知（可选）
-- 实例离线超过 10 分钟 → 发送通知（预留接口）
+**完成项**：
+- ✅ BullMQ 定时任务（每分钟）：遍历 online 实例，检查 Redis 心跳 TTL
+- ✅ 无心跳数据 → 标记 `offline`，写入 `alerts` 表（severity: critical）
+- ✅ GatewayPool.disconnect() 清理僵尸 WebSocket 连接
+- ✅ 长时间（>30min）offline 实例日志告警
+- ✅ server/index.ts 启动注册 + SIGTERM/SIGINT 优雅清理
 
 ---
 

@@ -1,23 +1,27 @@
 mod cache;
+mod circuit;
 mod rules;
 
 use axum::{
     Router,
     routing::{get, post},
     Json,
-    extract::State,
+    extract::{State, Path},
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use cache::L1Cache;
+use circuit::{CircuitBreaker, CircuitStatus};
 use rules::{is_complex, RouteStats};
 
 #[derive(Clone)]
 pub struct AppState {
     pub cache: Arc<L1Cache>,
     pub stats: Arc<RouteStats>,
+    pub circuit: Arc<CircuitBreaker>,
     pub intent_url: String,
     pub default_simple_model: String,
     pub default_complex_model: String,
@@ -43,6 +47,21 @@ pub struct StatsResponse {
     pub total: u64,
     pub cache_hits: u64,
     pub hit_rate: f64,
+    pub rule_decisions: u64,
+    pub complex_routed: u64,
+    pub simple_routed: u64,
+    pub circuits: HashMap<String, CircuitStatus>,
+}
+
+#[derive(Deserialize)]
+pub struct CircuitReportRequest {
+    pub provider: String,
+    pub success: bool,
+}
+
+#[derive(Serialize)]
+pub struct CircuitStatusResponse {
+    pub circuits: HashMap<String, CircuitStatus>,
 }
 
 #[tokio::main]
@@ -68,10 +87,12 @@ async fn main() -> anyhow::Result<()> {
 
     let cache = Arc::new(L1Cache::new(&redis_url, l1_ttl).await?);
     let stats = Arc::new(RouteStats::new());
+    let circuit = Arc::new(CircuitBreaker::new());
 
     let state = Arc::new(AppState {
         cache,
         stats,
+        circuit,
         intent_url,
         default_simple_model,
         default_complex_model,
@@ -81,6 +102,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health_handler))
         .route("/route", post(route_handler))
         .route("/stats", get(stats_handler))
+        .route("/circuit/status", get(circuit_status_handler))
+        .route("/circuit/report", post(circuit_report_handler))
+        .route("/circuit/reset/{provider}", post(circuit_reset_handler))
         .with_state(state)
         .layer(tower_http::cors::CorsLayer::permissive());
 
@@ -136,7 +160,42 @@ async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<StatsResponse
     let total = state.stats.total();
     let hits = state.stats.hits();
     let hit_rate = if total > 0 { hits as f64 / total as f64 } else { 0.0 };
-    Json(StatsResponse { total, cache_hits: hits, hit_rate })
+    Json(StatsResponse {
+        total,
+        cache_hits: hits,
+        hit_rate,
+        rule_decisions: state.stats.rule_decisions(),
+        complex_routed: state.stats.complex_routed(),
+        simple_routed: state.stats.simple_routed(),
+        circuits: state.circuit.status_all(),
+    })
+}
+
+async fn circuit_status_handler(State(state): State<Arc<AppState>>) -> Json<CircuitStatusResponse> {
+    Json(CircuitStatusResponse {
+        circuits: state.circuit.status_all(),
+    })
+}
+
+async fn circuit_report_handler(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CircuitReportRequest>,
+) -> Json<serde_json::Value> {
+    if req.success {
+        state.circuit.record_success(&req.provider);
+    } else {
+        state.circuit.record_failure(&req.provider);
+    }
+    let status = state.circuit.status(&req.provider);
+    Json(serde_json::json!({ "provider": req.provider, "state": status.state }))
+}
+
+async fn circuit_reset_handler(
+    State(state): State<Arc<AppState>>,
+    Path(provider): Path<String>,
+) -> Json<serde_json::Value> {
+    state.circuit.reset(&provider);
+    Json(serde_json::json!({ "provider": provider, "state": "Closed" }))
 }
 
 async fn call_intent(intent_url: &str, prompt: &str, simple_model: &str, complex_model: &str) -> (String, String) {
@@ -163,7 +222,8 @@ async fn call_intent(intent_url: &str, prompt: &str, simple_model: &str, complex
         }
         Err(_) => {
             // Python 服务不可用时用规则引擎 fallback
-            let model = if is_complex(prompt) {
+            let complex = is_complex(prompt);
+            let model = if complex {
                 complex_model.to_string()
             } else {
                 simple_model.to_string()

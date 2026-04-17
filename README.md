@@ -52,7 +52,7 @@ ClawGate is an **infrastructure enhancement layer** for [OpenClaw](https://githu
 ### Install & Run
 
 ```bash
-git clone https://github.com/DXL_0702/ClawGate.git
+git clone https://github.com/DXL-0702/ClawGate.git
 cd ClawGate
 
 pnpm install        # install Node.js dependencies
@@ -167,7 +167,7 @@ ClawGate/
 | v0.3 | ✅ | 4-layer routing engine, OpenAI-compatible API, L1–L4 fully validated |
 | v0.5 | ✅ | DAG workflow (Wave 1-3): multi-node execution, cron/webhook triggers, variable passing, visual editor |
 | v0.6 | ✅ | DAG advanced: run history, condition branch, delay node, output cache (Redis opt-in, 50KB guard) |
-| v1.0 | 🔜 | Team deployment (Phase 2 core done) · Health dashboard (Phase 3 in progress) · SDK · Auto-update |
+| v1.0 | 🔜 | Team deployment (Phase 2 done) · Health dashboard + auto-offline (Phase 3 core done) · SDK · Auto-update |
 
 **v0.6 Wave 4 Delivery (2026-04-17)**:
 - ✅ 15-scenario integration test suite (46/46 passing), covering condition+delay combinations

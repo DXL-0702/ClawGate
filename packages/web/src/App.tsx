@@ -7,6 +7,7 @@ import DagsListPage from './pages/DagsListPage.js';
 import DagEditorPage from './pages/DagEditorPage.js';
 import DagRunsPage from './pages/DagRunsPage.js';
 import DagRunDetailPage from './pages/DagRunDetailPage.js';
+import StatsPage from './pages/StatsPage.js';
 import Layout from './components/Layout.js';
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/dags/:id" element={<DagEditorPage />} />
         <Route path="/dags/:id/runs" element={<DagRunsPage />} />
         <Route path="/dags/:dagId/runs/:runId" element={<DagRunDetailPage />} />
+        <Route path="/stats" element={<StatsPage />} />
       </Routes>
     </Layout>
   );

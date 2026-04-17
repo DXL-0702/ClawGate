@@ -9,7 +9,7 @@
 **依赖**：Node 18+、pnpm、Rust 1.70+、Python 3.11+、Docker
 
 ```bash
-git clone https://github.com/DXL_0702/ClawGate.git && cd ClawGate
+git clone https://github.com/DXL-0702/ClawGate.git && cd ClawGate
 pnpm install && pnpm build
 docker compose up -d redis qdrant ollama
 pnpm dev
@@ -29,7 +29,7 @@ pnpm dev
 version: '3.8'
 services:
   clawgate:
-    image: ghcr.io/dxl_0702/clawgate:latest
+    image: ghcr.io/dxl-0702/clawgate:latest
     ports: ["3000:3000"]
     volumes:
       - ./data:/data

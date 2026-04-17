@@ -79,4 +79,31 @@ export class RouterClient {
       return false;
     }
   }
+
+  async circuitStatus(): Promise<Record<string, {
+    state: 'Closed' | 'Open' | 'HalfOpen';
+    allowed: boolean;
+    failure_count: number;
+  }> | null> {
+    try {
+      const { data } = await this.http.get<{
+        circuits: Record<string, { state: string; allowed: boolean; failure_count: number }>;
+      }>('/circuit/status');
+      return data.circuits as Record<string, {
+        state: 'Closed' | 'Open' | 'HalfOpen';
+        allowed: boolean;
+        failure_count: number;
+      }>;
+    } catch {
+      return null;
+    }
+  }
+
+  async reportOutcome(provider: string, success: boolean): Promise<void> {
+    try {
+      await this.http.post('/circuit/report', { provider, success });
+    } catch {
+      // silent degradation — Rust service unavailable
+    }
+  }
 }

@@ -34,7 +34,7 @@
 version: '3.8'
 services:
   clawgate:
-    image: ghcr.io/dxl_0702/clawgate:latest
+    image: ghcr.io/dxl-0702/clawgate:latest
     ports: ["3000:3000"]
     environment:
       - CLAWGATE_DB_PATH=/data/clawgate.db

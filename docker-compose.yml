@@ -1,3 +1,12 @@
+# ClawGate 开发 / 源码构建版
+#
+# 从本地源码构建 ClawGate 三个服务，用于开发调试。
+# 生产环境推荐使用 docker-compose.prod.yml（拉取官方镜像，启动更快）。
+#
+# 启动：docker compose up -d --build
+# 停止：docker compose down
+# 日志：docker compose logs -f server
+
 services:
   redis:
     image: redis:7-alpine
@@ -43,7 +52,61 @@ services:
     #           count: 1
     #           capabilities: [gpu]
 
+  # ── ClawGate 服务（本地构建） ───────────────────────────────
+  router:
+    build:
+      context: ./services/router-rust
+      dockerfile: Dockerfile
+    container_name: clawgate-router
+    ports:
+      - "3001:3001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - INTENT_URL=http://intent:8000
+
+  intent:
+    build:
+      context: ./services/intent-python
+      dockerfile: Dockerfile
+    container_name: clawgate-intent
+    ports:
+      - "8000:8000"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_URL=http://ollama:11434
+
+  server:
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile
+    container_name: clawgate-server
+    ports:
+      - "3000:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      router:
+        condition: service_started
+      intent:
+        condition: service_started
+    environment:
+      - CLAWGATE_REQUIRE_OPENCLAW=${CLAWGATE_REQUIRE_OPENCLAW:-false}
+      - REDIS_URL=redis://redis:6379
+      - ROUTER_URL=http://router:3001
+      - OLLAMA_URL=http://ollama:11434
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    volumes:
+      - clawgate_data:/app/data
+
 volumes:
   redis_data:
   qdrant_data:
   ollama_data:
+  clawgate_data:
