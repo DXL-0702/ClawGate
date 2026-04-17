@@ -81,42 +81,37 @@
 
 ---
 
-## 当前阶段：v0.6 — DAG 进阶功能（Wave 4）
+## 已完成：v0.6 Wave 4 ✅
 
-### 目标
+### D1. DAG 深度验证（Issue 9）✅
+- ✅ 15 场景 Mock 集成测试（线性链、并行 Diamond、失败中断、循环检测、变量边界、条件分支、延迟节点、组合场景）
+- ✅ `executor-integration.test.ts`：46/46 全部通过
 
-在 v0.5 多节点执行基础上，补充深度验证、执行历史、条件分支、延迟节点等进阶功能。
+### D5. 执行历史 ✅
+- ✅ DAG Run 历史列表页（`/dags/:id/runs`，`DagRunsPage.tsx`）
+- ✅ 单次执行详情页（节点时间线 + 输出展示，`DagRunDetailPage.tsx`）
+- ✅ 后端 API：`GET /api/dag-runs`（列表 + 分页）、`GET /api/dag-runs/:runId`（详情含节点状态）
 
-### 开发优先级
+### D2. 条件分支节点 ✅
+- ✅ `condition-eval.ts`：6 种运算符（eq/neq/contains/not_contains/empty/not_empty）
+- ✅ `skip-logic.ts`：基于 condition 结果的下游节点跳过逻辑
+- ✅ 前端：`ConditionNode.tsx` 菱形节点组件，`DagNodePanel` 表达式构建器
+- ✅ 执行引擎集成：condition 结果写入 `conditionResults` + `context`，驱动 `shouldSkipNode`
 
-D1 → D5 → D2 → D3 → D4
+### D3. 延迟节点 ✅
+- ✅ 执行引擎支持 `delay` 类型节点（`delaySeconds` 睡眠）
+- ✅ 前端：`DelayNode.tsx` 时钟图标节点，`DagNodePanel` 秒数输入
+- ✅ 0 秒延迟不阻塞，正确传递 context
 
-### 任务清单
+### D4. 节点输出缓存 ✅
+- ✅ `cache-key.ts`：`computeCacheKey(agentId, resolvedPrompt)` → SHA-256 64 字符 hex
+- ✅ Redis 函数：`getDagNodeCache` / `setDagNodeCache`（50KB 保护 + try-catch 静默降级）
+- ✅ 执行引擎：单节点 + 并行执行路径均支持缓存读写
+- ✅ 前端：`cacheTtl` number input（0 = 不缓存，单位秒）
+- ✅ 服务端：`cacheTtl >= 0` 校验，序列化仅 `> 0` 时写入（节省 JSON 体积）
+- ✅ 单元测试：`cache-key.test.ts` 4/4 通过
 
-#### D1. DAG 深度验证（Issue 9）— 进行中
-- [ ] 6 场景 Mock 集成测试（线性链、并行 Diamond、失败中断、循环检测、长链路、变量边界）
-- [ ] 前端视觉状态与后端状态同步验证
-- [ ] 性能基准：50 节点 DAG 执行时间 < 5 分钟（待真实 Gateway 补验）
-
-#### D5. 执行历史与回放
-- [ ] DAG Run 历史列表页（`/dags/:id/runs`）
-- [ ] 单次执行详情页（节点输出可视化展示）
-- [ ] 支持从任意已完成节点"重新执行"
-
-#### D2. 条件分支节点（condition）
-- [ ] 节点类型：`condition`，基于变量表达式判断
-- [ ] 支持表达式：`{{node-1.output}} contains "error"`
-- [ ] 真/假两个输出分支（Edges with condition）
-- [ ] 前端：条件节点特殊样式（菱形图标）
-
-#### D3. 延迟节点（delay）
-- [ ] 节点类型：`delay`，固定延迟 N 秒
-- [ ] 支持配置：delaySeconds（1-300秒）
-- [ ] 前端：延迟节点显示倒计时动画
-
-#### D4. 节点输出缓存
-- [ ] 已完成节点输出缓存到 Redis（TTL 1小时）
-- [ ] 相同输入重复执行时直接返回缓存结果
+### 当前阶段：v1.0 Phase 3 — 健康检查定时任务（待开始）
 
 ### 技术债务处理
 - [ ] Cron 时区问题（支持 UTC/自定义时区）

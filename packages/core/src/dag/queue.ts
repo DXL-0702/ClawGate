@@ -28,6 +28,7 @@ export interface AgentNodeDef {
   type: 'agent';
   agentId: string;
   prompt: string;
+  cacheTtl?: number; // 秒，0 或不设 = 不缓存
 }
 
 export interface ConditionNodeDef {

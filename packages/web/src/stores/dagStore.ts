@@ -15,6 +15,7 @@ export interface AgentNodeData {
   type: 'agent';
   agentId: string;
   prompt: string;
+  cacheTtl: number; // 秒，0 = 不缓存
 }
 
 export interface ConditionNodeData {
@@ -76,6 +77,7 @@ interface DagStore {
       type: string;
       agentId?: string;
       prompt?: string;
+      cacheTtl?: number;
       expression?: { left: string; operator: string; right?: string };
       delaySeconds?: number;
       position?: { x: number; y: number };
@@ -108,7 +110,7 @@ export const useDagStore = create<DagStore>((set, get) => ({
       ? { type: 'condition', expression: { left: '', operator: 'eq', right: '' } }
       : type === 'delay'
       ? { type: 'delay', delaySeconds: 5 }
-      : { type: 'agent', agentId: '', prompt: '' };
+      : { type: 'agent', agentId: '', prompt: '', cacheTtl: 0 };
     const newNode: Node<NodeData> = {
       id,
       type,
@@ -255,6 +257,7 @@ export const useDagStore = create<DagStore>((set, get) => ({
             type: 'agent',
             agentId: n.agentId ?? '',
             prompt: n.prompt ?? '',
+            cacheTtl: n.cacheTtl ?? 0,
           };
 
       return {

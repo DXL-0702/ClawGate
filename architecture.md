@@ -431,5 +431,5 @@ graph TB
 ---
 
 **Last Updated**: 2026-04-17
-**Version**: v0.6 (v0.5 Wave 1-3 done, v1.0 Phase 2 done, Phase 3 in progress)
-**Next**: v0.6 Wave 4 (DAG advanced: run history, condition branch, delay node, output cache)
+**Version**: v0.6 (Wave 4 done: condition branch, delay node, output cache, 46-test suite; v1.0 Phase 2 done, Phase 3 in progress)
+**Next**: v1.0 Phase 3 — Health check scheduled task (BullMQ auto-offline detection + GatewayPool disconnect cleanup)

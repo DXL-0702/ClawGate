@@ -11,6 +11,7 @@ export {
   getBullMqRedis, disconnectBullMqRedis,
   setSessionState, getSessionState,
   incrCostRealtime, pushRoutingLog,
+  getDagNodeCache, setDagNodeCache,
   REDIS_KEYS, REDIS_TTL,
 } from './redis/index.js';
 export {
@@ -72,6 +73,7 @@ export {
 } from './dag/condition-eval.js';
 
 export { shouldSkipNode } from './dag/skip-logic.js';
+export { computeCacheKey } from './dag/cache-key.js';
 
 // OpenClaw 生命周期管理
 export { OpenClawLifecycle } from './openclaw/lifecycle.js';

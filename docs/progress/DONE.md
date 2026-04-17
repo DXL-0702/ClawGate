@@ -1,7 +1,7 @@
 # 已完成开发 (DONE)
 
 > 本文件仅记录**已通过端到端验证**的功能模块，未验证的模块不在此列。
-> 最后更新：v0.5 Wave 3.5 + v1.0 Phase 2 + Phase 3（部分）完成
+> 最后更新：v0.6 Wave 4 全部完成（D1–D5）
 
 ---
 
@@ -395,6 +395,62 @@ POST /api/dags/:id/webhook?token=wrong
 - 支持 `environment` 参数透传（通过 BullMQ job data）
 
 **验证结果（2026-04-17）**：创建团队 → 注册 production 实例 → 心跳上报 → 创建 DAG → 触发执行 → GatewayPool 选择正确实例，全流程通过。
+
+---
+
+## v0.6 Wave 4 — DAG 进阶功能（全部完成）
+
+### D1. DAG 深度验证（15 场景集成测试）
+
+- **`executor-integration.test.ts`**：46 个测试全部通过，覆盖：
+  - 场景 1–7：线性链、并行 Diamond、失败中断、循环检测、变量传递、空 DAG、单节点
+  - 场景 8–11：6 节点并发控制（max 5 信号量）
+  - 场景 12：`cacheTtl=0` 向后兼容验证
+  - 场景 13–15：延迟节点（0s 不阻塞）、delay+condition 组合、条件分支中延迟节点被跳过
+
+### D5. 执行历史
+
+- **`DagRunsPage.tsx`**：DAG Run 历史列表页（`/dags/:id/runs`），状态/触发方式/时长展示
+- **`DagRunDetailPage.tsx`**：单次执行详情页，节点时间线 + 输出/错误可视化
+- **后端 API 扩展**：`GET /api/dag-runs`（分页列表）、`GET /api/dag-runs/:runId`（节点状态详情）
+
+### D2. 条件分支节点
+
+- **`condition-eval.ts`**：6 种运算符（eq / neq / contains / not_contains / empty / not_empty）
+- **`skip-logic.ts`**：`shouldSkipNode()` 基于 condition 结果决定下游跳过，支持 true/false handle
+- **`ConditionNode.tsx`**：菱形图标节点组件，绿色 true / 红色 false 分支端口
+- **`DagNodePanel.tsx`**：条件表达式构建器（左操作数 + 运算符 + 右操作数）
+- **执行引擎**：condition 结果写入 `conditionResults` + `context`，驱动下游跳过逻辑
+
+### D3. 延迟节点
+
+- **`DelayNode.tsx`**：时钟图标节点，秒数显示
+- **`DagNodePanel.tsx`**：`delaySeconds` number input（0–3600）
+- **执行引擎**：`setTimeout` 睡眠，0 秒不阻塞，输出为秒数字符串
+
+### D4. 节点输出缓存
+
+- **`cache-key.ts`**：`computeCacheKey(agentId, resolvedPrompt)` → SHA-256 hex（变量替换后计算，上游变则自动失效）
+- **Redis 层**：`getDagNodeCache` / `setDagNodeCache`（>50KB 跳过写入 + try-catch 静默降级）
+- **执行引擎**：单节点 + 并行执行路径均支持 opt-in 缓存，命中日志标记 `cache HIT`
+- **前端**：`DagNodePanel` cacheTtl number input（0 = 不缓存，步长 60s）
+- **序列化**：`DagEditorPage.handleSave` 仅 `cacheTtl > 0` 时写入 JSON（零体积影响）
+- **校验**：服务端 `cacheTtl >= 0` 校验
+- **单元测试**：`cache-key.test.ts` 4/4（相同输入、不同 agentId、不同 prompt、长度=64）
+
+### v0.6 Wave 4 验证结果
+
+| 功能 | 测试状态 | 备注 |
+|------|----------|------|
+| D1 集成测试 15 场景 | ✅ 46/46 | `executor-integration.test.ts` |
+| D2 条件分支 | ✅ | 场景 14/15 覆盖 condition+delay 组合 |
+| D3 延迟节点 | ✅ | 场景 13/14/15 覆盖 0s/正数/组合 |
+| D4 缓存单元测试 | ✅ 4/4 | `cache-key.test.ts` |
+| D4 向后兼容 | ✅ | 场景 12 验证 cacheTtl=0 |
+| core build | ✅ | 无 tsc 报错 |
+| web build | ✅ | 无报错 |
+
+**v0.6 Wave 4 核心交付**：DAG 进阶功能全部实现，含深度验证（15场景/46测试）、执行历史、条件分支、延迟节点、节点输出缓存（Redis opt-in，50KB保护，静默降级）。
 
 ---
 

@@ -282,6 +282,23 @@ export function DagNodePanel({ agents }: DagNodePanelProps) {
                   </div>
                 </div>
 
+                {/* 缓存 TTL */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+                    {t('cache.ttl')}
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={86400}
+                    step={60}
+                    value={data.type === 'agent' ? data.cacheTtl : 0}
+                    onChange={(e) => updateNodeData(id, { cacheTtl: Math.max(0, parseInt(e.target.value) || 0) })}
+                    className="w-full px-3 py-2.5 text-sm bg-gray-900/80 border border-gray-700/50 rounded-lg text-white font-mono focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 focus:outline-none transition-all hover:border-gray-600"
+                  />
+                  <p className="text-[10px] text-gray-500">{t('cache.hint')}</p>
+                </div>
+
                 {/* 节点 ID 信息 */}
                 <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-900/40 border border-gray-800/50">
                   <span className="text-[10px] text-gray-500 uppercase tracking-wider">Node ID</span>

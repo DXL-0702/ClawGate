@@ -11,6 +11,8 @@ import { topologicalSort } from './topo-sort.js';
 import { substituteVariables } from './variable-subst.js';
 import { evaluateConditionToString } from './condition-eval.js';
 import { shouldSkipNode } from './skip-logic.js';
+import { computeCacheKey } from './cache-key.js';
+import { getDagNodeCache, setDagNodeCache } from '../redis/index.js';
 import { PERSONAL_TEAM_ID } from '../auth/index.js';
 import { configReader } from '../config/index.js';
 
@@ -246,6 +248,25 @@ export async function executeDagRun(params: DagRunParams): Promise<DagRunResult>
 
       const resolvedPrompt = substituteVariables(node.prompt, context);
 
+      // 缓存检查（opt-in，cacheTtl > 0 时生效）
+      if ((node.cacheTtl ?? 0) > 0) {
+        const hash = computeCacheKey(node.agentId, resolvedPrompt);
+        const cached = await getDagNodeCache(hash);
+        if (cached !== null) {
+          context[nodeId] = cached;
+          const cacheHitAt = new Date().toISOString();
+          await db
+            .update(schema.dagNodeStates)
+            .set({ status: 'completed', output: cached, endedAt: cacheHitAt })
+            .where(and(
+              eq(schema.dagNodeStates.runId, runId),
+              eq(schema.dagNodeStates.nodeId, nodeId)
+            ));
+          console.log(`[DAG Worker] Node ${nodeId} cache HIT`);
+          continue;
+        }
+      }
+
       console.log(`[DAG Worker] Executing node ${nodeId} (agent: ${node.agentId})`);
 
       const result = await executeAgentNode(gateway, {
@@ -266,6 +287,11 @@ export async function executeDagRun(params: DagRunParams): Promise<DagRunResult>
             eq(schema.dagNodeStates.nodeId, nodeId)
           ));
         console.log(`[DAG Worker] Node ${nodeId} completed`);
+        // 写入缓存（opt-in）
+        if ((node.cacheTtl ?? 0) > 0) {
+          const hash = computeCacheKey(node.agentId, resolvedPrompt);
+          await setDagNodeCache(hash, result.output, node.cacheTtl!);
+        }
       } else {
         runFailed = true;
         failedNodeId = nodeId;
@@ -280,24 +306,47 @@ export async function executeDagRun(params: DagRunParams): Promise<DagRunResult>
         console.error(`[DAG Worker] Node ${nodeId} failed: ${result.error}`);
       }
     } else {
-      const parallelNodes = agentNodeIds
-        .map((nodeId) => {
-          const node = nodeMap.get(nodeId)!;
-          if (node.type !== 'agent') return null;
-          return {
-            nodeId,
-            agentId: node.agentId,
-            prompt: substituteVariables(node.prompt, context),
-          };
-        })
-        .filter((n): n is NonNullable<typeof n> => n !== null);
-
-      console.log(`[DAG Worker] Executing parallel batch: [${agentNodeIds.join(', ')}]`);
-
-      const results = await executeAgentNodesParallel(gateway, parallelNodes, 60000);
-      const batchEndedAt = new Date().toISOString();
+      // 并行执行前先逐个检查缓存
+      const parallelCandidates: Array<{ nodeId: string; agentId: string; prompt: string; cacheTtl: number }> = [];
+      const batchStartedAtParallel = new Date().toISOString();
 
       for (const nodeId of agentNodeIds) {
+        const node = nodeMap.get(nodeId)!;
+        if (node.type !== 'agent') continue;
+        const resolvedPrompt = substituteVariables(node.prompt, context);
+        const ttl = node.cacheTtl ?? 0;
+
+        if (ttl > 0) {
+          const hash = computeCacheKey(node.agentId, resolvedPrompt);
+          const cached = await getDagNodeCache(hash);
+          if (cached !== null) {
+            context[nodeId] = cached;
+            await db
+              .update(schema.dagNodeStates)
+              .set({ status: 'completed', output: cached, endedAt: batchStartedAtParallel })
+              .where(and(
+                eq(schema.dagNodeStates.runId, runId),
+                eq(schema.dagNodeStates.nodeId, nodeId)
+              ));
+            console.log(`[DAG Worker] Node ${nodeId} cache HIT`);
+            continue;
+          }
+        }
+        parallelCandidates.push({ nodeId, agentId: node.agentId, prompt: resolvedPrompt, cacheTtl: ttl });
+      }
+
+      if (parallelCandidates.length === 0) continue;
+
+      console.log(`[DAG Worker] Executing parallel batch: [${parallelCandidates.map((n) => n.nodeId).join(', ')}]`);
+
+      const results = await executeAgentNodesParallel(
+        gateway,
+        parallelCandidates.map((n) => ({ nodeId: n.nodeId, agentId: n.agentId, prompt: n.prompt })),
+        60000
+      );
+      const batchEndedAt = new Date().toISOString();
+
+      for (const { nodeId, agentId, prompt, cacheTtl } of parallelCandidates) {
         const result = results.get(nodeId);
         if (!result) continue;
 
@@ -310,6 +359,11 @@ export async function executeDagRun(params: DagRunParams): Promise<DagRunResult>
               eq(schema.dagNodeStates.runId, runId),
               eq(schema.dagNodeStates.nodeId, nodeId)
             ));
+          // 写入缓存（opt-in）
+          if (cacheTtl > 0) {
+            const hash = computeCacheKey(agentId, prompt);
+            await setDagNodeCache(hash, result.output, cacheTtl);
+          }
         } else {
           if (!runFailed) {
             runFailed = true;

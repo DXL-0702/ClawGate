@@ -8,6 +8,7 @@ export const REDIS_KEYS = {
   routingLogsBuffer: 'routing_logs_buf',
   feedbackQueue: 'feedback_queue',
   syncCheckpoint: 'sync_checkpoint',
+  dagNodeCache: (hash: string) => `dag_cache:${hash}`,
 } as const;
 
 // TTL 常量（秒）
@@ -135,4 +136,25 @@ export async function pushRoutingLog(
   await redis.lpush(REDIS_KEYS.routingLogsBuffer, JSON.stringify(entry));
   // 保留最近 1000 条
   await redis.ltrim(REDIS_KEYS.routingLogsBuffer, 0, 999);
+}
+
+const DAG_NODE_CACHE_MAX_BYTES = 50 * 1024; // 50KB
+
+export async function getDagNodeCache(hash: string): Promise<string | null> {
+  try {
+    const redis = getRedis();
+    return await redis.get(REDIS_KEYS.dagNodeCache(hash));
+  } catch {
+    return null;
+  }
+}
+
+export async function setDagNodeCache(hash: string, output: string, ttl: number): Promise<void> {
+  if (output.length > DAG_NODE_CACHE_MAX_BYTES) return;
+  try {
+    const redis = getRedis();
+    await redis.setex(REDIS_KEYS.dagNodeCache(hash), ttl, output);
+  } catch {
+    // Redis 不可用时静默跳过
+  }
 }

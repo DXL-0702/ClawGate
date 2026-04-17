@@ -89,6 +89,10 @@ const translations = {
     'delay.seconds': '延迟秒数',
     'delay.hint': '范围 0-3600 秒（1 小时）',
 
+    // 缓存
+    'cache.ttl': '缓存 TTL',
+    'cache.hint': '0 = 不缓存，单位秒（最大 86400）',
+
     // 节点执行状态
     'node.status.pending': '等待中',
     'node.status.running': '执行中',
@@ -217,6 +221,10 @@ const translations = {
     'delay.title': 'Delay',
     'delay.seconds': 'Delay (seconds)',
     'delay.hint': 'Range 0-3600 seconds (1 hour)',
+
+    // Cache
+    'cache.ttl': 'Cache TTL',
+    'cache.hint': '0 = no cache, in seconds (max 86400)',
 
     // Node execution status
     'node.status.pending': 'Pending',

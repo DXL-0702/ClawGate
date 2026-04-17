@@ -11,6 +11,7 @@ interface AgentNodeDef {
   type: 'agent';
   agentId: string;
   prompt: string;
+  cacheTtl?: number;
 }
 
 interface ConditionNodeDef {
@@ -143,6 +144,13 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
       const agentNodes = definition.nodes.filter((n): n is AgentNodeDef => n.type === 'agent');
       if (!agentNodes.some((n) => n.agentId && n.prompt)) {
         return reply.status(400).send({ error: 'at least one agent node must have agentId and prompt' });
+      }
+
+      // agent 节点 cacheTtl 必须 >= 0
+      for (const an of agentNodes) {
+        if (an.cacheTtl !== undefined && (typeof an.cacheTtl !== 'number' || an.cacheTtl < 0)) {
+          return reply.status(400).send({ error: `agent node "${an.id}" cacheTtl must be >= 0` });
+        }
       }
 
       // 条件节点必须有 operator

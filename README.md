@@ -166,15 +166,15 @@ ClawGate/
 | v0.1 | ✅ | Agent management, session tracking, CLI, SQLite + Redis layered storage |
 | v0.3 | ✅ | 4-layer routing engine, OpenAI-compatible API, L1–L4 fully validated |
 | v0.5 | ✅ | DAG workflow (Wave 1-3): multi-node execution, cron/webhook triggers, variable passing, visual editor |
-| v0.6 | 🔧 | DAG advanced: run history, condition branch, delay node, output cache |
+| v0.6 | ✅ | DAG advanced: run history, condition branch, delay node, output cache (Redis opt-in, 50KB guard) |
 | v1.0 | 🔜 | Team deployment (Phase 2 core done) · Health dashboard (Phase 3 in progress) · SDK · Auto-update |
 
-**v0.5 Wave 3 Delivery (2026-04-17)**:
-- ✅ Topological sort engine (Kahn's BFS, layered batch execution)
-- ✅ Variable substitution (`{{nodeId.output}}` cross-node data passing)
-- ✅ Parallel batch execution (max 5 concurrent, semaphore control)
-- ✅ Visual editor enhancements (node status coloring, animated edges, i18n ZH/EN)
-- ✅ Team deployment core: GatewayPool + instance registration + heartbeat + API Key auth
+**v0.6 Wave 4 Delivery (2026-04-17)**:
+- ✅ 15-scenario integration test suite (46/46 passing), covering condition+delay combinations
+- ✅ Run history pages (list + node timeline detail)
+- ✅ Condition branch node (6 operators, true/false handle routing, skip logic)
+- ✅ Delay node (0–3600s, non-blocking at 0s)
+- ✅ Node output cache: SHA-256 key (post-substitution), Redis opt-in per node (`cacheTtl`), 50KB guard, silent fallback
 
 ---
 

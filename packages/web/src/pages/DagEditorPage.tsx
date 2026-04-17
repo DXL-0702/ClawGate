@@ -190,11 +190,13 @@ function DagEditorInner() {
                 delaySeconds: n.data.delaySeconds,
               };
             }
+            const cacheTtl = n.data.type === 'agent' ? (n.data.cacheTtl || 0) : 0;
             return {
               id: n.id,
               type: 'agent' as const,
               agentId: n.data.type === 'agent' ? n.data.agentId : '',
               prompt: n.data.type === 'agent' ? n.data.prompt : '',
+              ...(cacheTtl > 0 ? { cacheTtl } : {}),
             };
           }),
           edges: definition.edges.map((e) => ({
