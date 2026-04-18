@@ -540,3 +540,60 @@ POST /api/dags/:id/webhook?token=wrong
 **已知限制**：`HEAD /spa-route` 不触发 fallback（仅 GET），因浏览器导航 100% 用 GET，影响可忽略。
 
 ---
+
+### R2 ✅ Issue 6 双模式认证深化（2026-04-18）
+
+**核心发现（R2.0 协议验证）**：
+通过逆向分析 `/opt/homebrew/lib/node_modules/openclaw/dist/server.impl-*.js` 与 SDK `client-*.js`，确认 Gateway 握手正确协议：
+1. 服务端建连后发 `connect.challenge`（始终，无论 auth.mode 配置）
+2. 客户端发 **RPC 请求帧**：`{ type:"req", id, method:"connect", params:{...} }`
+3. 服务端回 `{ type:"res", id, ok:true, payload:helloOk }`（不发 `connect.success` 事件）
+
+**修复 5 个 Bug（`packages/core/src/gateway/index.ts`）**：
+
+| Bug | 旧行为 | 修复后 |
+|---|---|---|
+| A - 帧格式 | 发 `{ type:"connect", ... }`（无 `id`/`method`） | 发 `{ type:"req", id, method:"connect", params }` |
+| B - client.id | 使用 `"clawgate"`（不在白名单） | 使用 `"gateway-client"`（GATEWAY_CLIENT_IDS 枚举值）|
+| C - token-only 等待 | 盲等 `setTimeout(500ms)` | 等 pending Map 的 `ok:true` RPC 响应 |
+| D - challenge 等待 | 等不存在的 `connect.success` 事件（5s 超时） | 同 C，统一等 RPC 响应 |
+| E - auth.token | 用 Bearer header 同一 token | 优先用 `device-auth.json` 的 operator token |
+
+**新增功能（`packages/core/src/yaml-config/schema.ts` + `server/index.ts`）**：
+- `clawgate.yaml` 新增 `gateway.auth_mode: token | challenge | auto`（默认 `auto`）
+- `configReader` 新增 `operatorToken` 字段（来自 `device-auth.json`）
+- `GatewayClientOptions` 新增 `operatorToken` 可选字段并在 `server/index.ts` 透传
+
+**架构统一**：`_handleChallenge()` 方法删除，两种模式（token-only / challenge）合并为 `_sendConnectRpc()` 单一路径，区别仅在 `params.device` 是否携带 Ed25519 签名。
+
+**端到端验证（本地 OpenClaw Gateway 实测）**：
+
+| 指标 | 结果 |
+|---|---|
+| 收到 `connect.challenge` | ✅ |
+| 发送正确 RPC 帧（`type:"req"` + `method:"connect"`） | ✅ |
+| 服务端回 `ok:true` + `hello-ok` payload | ✅ |
+| `[GatewayClient] Gateway authentication successful` | ✅ |
+| `GET /api/health` → `connected:true, mode:"integrated"` | ✅ |
+| `GET /api/agents` → 返回 `main` agent（status: running） | ✅ |
+
+---
+
+### R3 ✅ 团队部署 Docker Compose 模板（2026-04-18）
+
+**新增文件 `docker-compose.team.yml`**：
+- 基于 `docker-compose.prod.yml` 三服务架构（router + intent + server + Redis + Qdrant + Ollama）
+- 关键差异：
+  - 不挂载 `~/.openclaw`（成员实例通过 HTTP 心跳向中央服务器注册，无需本地 OpenClaw）
+  - `CLAWGATE_REQUIRE_OPENCLAW=false` 固定（中央服务器纯调度角色）
+  - 新增 `ADMIN_API_KEY` 环境变量支持（团队管理员鉴权）
+  - 新增 `CLAWGATE_PORT` 自定义外部端口（默认 3000）
+  - 新增 `SIMPLE_MODEL` / `COMPLEX_MODEL` 路由模型环境变量
+  - 容器名加 `-team-` 前缀，可与单节点 `docker-compose.prod.yml` 共存同一宿主机
+
+**更新 `docs/deployment/team.md`**：
+- 替换旧的单镜像 compose 示例（`version: '3.8'` 格式）为正确的三服务架构部署命令
+- 新增 `.env` 配置说明（必填 `ADMIN_API_KEY` + 至少一个 Provider Key）
+- 补充两种 Compose 文件的差异对比说明
+
+---

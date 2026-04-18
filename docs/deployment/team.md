@@ -66,34 +66,28 @@ GATEWAY_AUTH_MODE=auto
 
 ### 2. 部署
 
-**docker-compose.yml**：
+```bash
+# 下载团队 Compose 文件和环境变量模板
+curl -O https://raw.githubusercontent.com/DXL-0702/ClawGate/main/docker-compose.team.yml
+curl -O https://raw.githubusercontent.com/DXL-0702/ClawGate/main/.env.example
 
-```yaml
-version: '3.8'
-services:
-  clawgate:
-    image: ghcr.io/dxl-0702/clawgate:latest
-    ports: ["3000:3000"]
-    environment:
-      - CLAWGATE_DB_PATH=/data/clawgate.db
-    volumes:
-      - ./data:/data
-    depends_on: [redis, qdrant]
+# 编辑 .env，必填项：
+#   ANTHROPIC_API_KEY 或 OPENAI_API_KEY（至少一个）
+#   ADMIN_API_KEY=<openssl rand -hex 32 生成的随机值>
+cp .env.example .env && vi .env
 
-  redis:
-    image: redis:7-alpine
-    volumes: [redis-data:/data]
+# 启动（首次约 10 分钟，需下载 Ollama 模型）
+docker compose -f docker-compose.team.yml up -d
 
-  qdrant:
-    image: qdrant/qdrant:latest
-    volumes: [qdrant-data:/qdrant/storage]
-
-volumes:
-  redis-data:
-  qdrant-data:
+# 验证
+curl http://localhost:3000/api/health
 ```
 
-启动：`docker compose up -d`
+> **说明**：`docker-compose.team.yml` 与 `docker-compose.prod.yml` 的区别：
+> - 不挂载 `~/.openclaw`（团队模式下 OpenClaw 实例由成员本地运行，通过 HTTP 注册）
+> - `CLAWGATE_REQUIRE_OPENCLAW=false`（中央服务器无需本地 OpenClaw）
+> - 容器名加 `-team-` 前缀，可与单节点模式共存于同一宿主机
+> - 支持 `CLAWGATE_PORT` 环境变量自定义外部端口（默认 3000）
 
 ---
 

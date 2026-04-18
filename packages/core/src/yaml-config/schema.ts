@@ -4,6 +4,8 @@ export const ClawGateConfigSchema = z.object({
   gateway: z.object({
     openclaw_url: z.string().url().default('ws://127.0.0.1:18789'),
     port: z.number().int().min(1).max(65535).default(3000),
+    /** 认证模式：token（仅 token）| challenge（Ed25519 设备签名）| auto（有 device key 时用 challenge，否则 token） */
+    auth_mode: z.enum(['token', 'challenge', 'auto']).default('auto'),
   }).default({}),
 
   router: z.object({

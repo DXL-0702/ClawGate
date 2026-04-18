@@ -61,7 +61,13 @@ initDb();
 await connectRedis();
 
 const cfg = configReader.get();
-const gateway = new GatewayClient({ url: cfg.gatewayUrl, token: cfg.gatewayToken });
+const yamlCfg = getYamlConfig();
+const gateway = new GatewayClient({
+  url: cfg.gatewayUrl,
+  token: cfg.gatewayToken,
+  operatorToken: cfg.operatorToken,
+  authMode: yamlCfg.gateway.auth_mode,
+});
 
 // OpenClaw 可选模式：默认不要求 OpenClaw 可用（用户可只使用智能路由/OpenAI 兼容端点）
 const requireOpenClaw = process.env['CLAWGATE_REQUIRE_OPENCLAW'] === 'true';
@@ -98,9 +104,8 @@ startHealthCheckWorker();
 app.log.info('Instance health check scheduler started (running every minute)');
 
 // 启动时注册所有启用的 Cron DAG
-import { getDb as getDbForCron, schema as schemaForCron, updateDagCronJob } from '@clawgate/core';
+import { getDb as getDbForCron, schema as schemaForCron, updateDagCronJob, getYamlConfig } from '@clawgate/core';
 import { eq, and } from 'drizzle-orm';
-
 (async () => {
   try {
     const db = getDbForCron();

@@ -1,0 +1,155 @@
+# ClawGate 团队部署 — 中央服务器模式
+#
+# 架构：
+#   - 一台中央服务器运行本文件中的所有服务
+#   - 各成员在本地运行 OpenClaw，通过 HTTP 向中央服务器注册实例
+#   - 中央服务器统一管理 Agent 调度、DAG 执行、智能路由
+#
+# 使用方式：
+#   curl -O https://raw.githubusercontent.com/DXL-0702/ClawGate/main/docker-compose.team.yml
+#   cp .env.example .env          # 编辑 .env，填入 API Keys 和 ADMIN_API_KEY
+#   docker compose -f docker-compose.team.yml up -d
+#
+# 访问：http://<SERVER_IP>:3000
+# API 文档：http://<SERVER_IP>:3000/api/health
+#
+# 成员接入：参考 docs/deployment/team.md「团队接入流程」章节
+
+services:
+  # ── 基础设施 ────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: clawgate-team-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: clawgate-team-qdrant
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/localhost/6333' 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: clawgate-team-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── Ollama 模型预热（一次性容器） ───────────────────────────
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: clawgate-team-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: >
+      sh -c "
+        echo 'Pulling nomic-embed-text (embedding model, ~274MB)...' &&
+        ollama pull nomic-embed-text &&
+        echo 'Pulling qwen2.5:3b (sentinel model, ~1.9GB)...' &&
+        ollama pull qwen2.5:3b &&
+        echo 'Models ready.'
+      "
+    restart: "no"
+
+  # ── ClawGate 三个服务 ──────────────────────────────────────
+  router:
+    image: ghcr.io/dxl-0702/clawgate-router:latest
+    container_name: clawgate-team-router
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - INTENT_URL=http://intent:8000
+      - SIMPLE_MODEL=${SIMPLE_MODEL:-qwen2.5:3b}
+      - COMPLEX_MODEL=${COMPLEX_MODEL:-claude-sonnet-4-6}
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  intent:
+    image: ghcr.io/dxl-0702/clawgate-intent:latest
+    container_name: clawgate-team-intent
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_URL=http://ollama:11434
+      - SIMPLE_MODEL=${SIMPLE_MODEL:-qwen2.5:3b}
+      - COMPLEX_MODEL=${COMPLEX_MODEL:-claude-sonnet-4-6}
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  server:
+    image: ghcr.io/dxl-0702/clawgate-server:latest
+    container_name: clawgate-team-server
+    ports:
+      # 团队模式：对外暴露 API，确保防火墙仅允许信任 IP 或配置反向代理 + TLS
+      - "${CLAWGATE_PORT:-3000}:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      router:
+        condition: service_started
+      intent:
+        condition: service_started
+    environment:
+      # 团队模式：不依赖本地 OpenClaw，成员通过 API 注册远程实例
+      - CLAWGATE_REQUIRE_OPENCLAW=false
+      - REDIS_URL=redis://redis:6379
+      - ROUTER_URL=http://router:3001
+      - OLLAMA_URL=http://ollama:11434
+      # Provider API Keys（至少配置一个）
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # 团队管理员 API Key（用于创建团队/成员/查看告警）
+      # 建议：生成强随机值，如 openssl rand -hex 32
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-}
+    volumes:
+      - clawgate_data:/app/data
+      # 团队模式不挂载 ~/.openclaw，成员实例通过 HTTP 心跳注册
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  qdrant_data:
+  ollama_data:
+  clawgate_data:

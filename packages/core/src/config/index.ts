@@ -56,6 +56,7 @@ async function load(): Promise<void> {
         ? `ws://127.0.0.1:${gatewayPort}`
         : defaults.gatewayUrl,
       gatewayToken: token,
+      operatorToken: loadOperatorToken() ?? undefined,
       defaultModel: 'claude-sonnet-4-6',
       agentsDir: join(OPENCLAW_DIR, 'agents'),
     };

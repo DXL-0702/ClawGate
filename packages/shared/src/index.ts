@@ -39,6 +39,8 @@ export interface RouteDecision {
 export interface OpenClawConfig {
   gatewayUrl: string;
   gatewayToken: string;
+  /** RPC 层 operator token（来自 device-auth.json），用于 connect RPC 的 auth.token */
+  operatorToken?: string;
   defaultModel: string;
   agentsDir: string;
 }

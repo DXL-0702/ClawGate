@@ -7,6 +7,8 @@ import type { Session } from '@clawgate/shared';
 interface GatewayClientOptions {
   url: string;
   token: string;
+  /** RPC 层 operator token（来自 device-auth.json），优先用于 connect RPC 的 auth.token */
+  operatorToken?: string;
   reconnectIntervalMs?: number;
   /** 认证模式：'token' | 'challenge' | 'auto'（默认 auto：有 device key 时用 challenge，否则 token） */
   authMode?: 'token' | 'challenge' | 'auto';
@@ -74,7 +76,7 @@ export class GatewayClient {
     }
   }
 
-  /** 判断是否使用 Challenge-Response 模式 */
+  /** 判断是否使用 Challenge-Response（即是否附带 device 签名） */
   private useChallengeMode(): boolean {
     if (this.authMode === 'challenge') return true;
     if (this.authMode === 'token') return false;
@@ -104,63 +106,43 @@ export class GatewayClient {
         headers: { Authorization: `Bearer ${this.opts.token}` },
       });
 
-      // challenge-response 握手状态机
-      let challengeResolve: ((value: void) => void) | null = null;
-      let challengeReject: ((err: Error) => void) | null = null;
-      const challengePromise = new Promise<void>((res, rej) => {
-        challengeResolve = res;
-        challengeReject = rej;
-      });
-      // 防止 close 事件触发的 reject 产生 unhandled rejection
-      challengePromise.catch(() => {});
-
-      // 标记是否已完成认证（解决无 device key 时 challenge 干扰）
-      let authCompleted = false;
+      // 握手是否已完成（防止 close 事件重复 reject）
+      let handshakeDone = false;
 
       // 处理消息
       const handleMessage = (raw: Buffer | string) => {
         const rawStr = typeof raw === 'string' ? raw : raw.toString();
         const msg = JSON.parse(rawStr) as RpcResponse & { event?: string; data?: unknown; type?: string; payload?: ChallengePayload };
 
-        // challenge 事件：有 device key 时响应，无则忽略
+        // connect.challenge：Gateway 建连后始终发送，收到后立即发 connect RPC 请求
         if (msg.event === 'connect.challenge') {
-          if (!this.privateKeyPem) {
-            console.log('[GatewayClient] Ignoring challenge (no device key, token-only mode)');
-            return;
-          }
           const payload = msg.payload ?? (msg.data as ChallengePayload);
-          this._handleChallenge(payload)
-            .then(() => {
-              console.log('[GatewayClient] challenge responded, waiting for connect.success...');
-            })
+          const useChallenge = this.useChallengeMode();
+          console.log(`[GatewayClient] Received connect.challenge, mode=${useChallenge ? 'challenge' : 'token-only'}`);
+          this._sendConnectRpc(payload, useChallenge)
             .catch((err) => {
-              console.error('[GatewayClient] challenge handling failed:', err);
-              challengeReject?.(err instanceof Error ? err : new Error(String(err)));
-              ws.close();
+              if (!handshakeDone) {
+                handshakeDone = true;
+                this.ws = null;
+                ws.close();
+                reject(err instanceof Error ? err : new Error(String(err)));
+              }
             });
           return;
         }
 
-        // connect.success：认证完成
-        if (msg.event === 'connect.success') {
-          authCompleted = true;
-          challengeResolve?.();
-          console.log('[GatewayClient] Gateway authentication successful');
-          return;
-        }
-
-        // connect.failed / connect.error：认证失败
+        // connect.failed / connect.error：认证失败（服务端关闭前发出）
         if (msg.event === 'connect.failed' || msg.event === 'connect.error') {
           const errorMsg = (msg.data as { message?: string })?.message ?? 'Authentication failed';
           console.error(`[GatewayClient] ${msg.event}: ${errorMsg}`);
-          challengeReject?.(new Error(`${msg.event}: ${errorMsg}`));
           return;
         }
 
-        // RPC 响应
+        // RPC 响应（含 connect 握手的 ok:true 响应）
         if (msg.id && this.pending.has(msg.id)) {
           this.pending.get(msg.id)!(msg);
           this.pending.delete(msg.id);
+          return;
         }
 
         // 透传其他事件
@@ -170,40 +152,30 @@ export class GatewayClient {
         }
       };
 
-      ws.once('open', async () => {
+      ws.once('open', () => {
         this.ws = ws;
-        const useChallenge = this.useChallengeMode();
-
-        if (useChallenge) {
-          // Challenge-Response 模式（生产环境推荐）
-          console.log('[GatewayClient] Using challenge-response mode');
-          try {
-            await Promise.race([
-              challengePromise,
-              new Promise<void>((_, rej) => setTimeout(() => rej(new Error('Challenge timeout (5s)')), 5000)),
-            ]);
-          } catch (err) {
+        // 等待服务端发 connect.challenge，收到后再发 connect RPC
+        // 握手超时兜底：10s 内未完成则断开
+        const handshakeTimer = setTimeout(() => {
+          if (!handshakeDone) {
+            handshakeDone = true;
             this.ws = null;
             ws.close();
-            reject(err instanceof Error ? err : new Error(String(err)));
-            return;
+            reject(new Error('Gateway handshake timeout (10s)'));
           }
-        } else {
-          // Token-Only 模式（开发环境，快速接入）
-          console.log('[GatewayClient] Using token-only mode (set GATEWAY_AUTH_MODE=challenge to enable device auth)');
-          // 发送简单的 connect 消息（不包含 device 签名）
-          const connectMsg = {
-            type: 'connect',
-            minProtocol: 3,
-            maxProtocol: 3,
-            client: { id: 'clawgate', version: '0.5.0' },
-            auth: { token: this.opts.token },
-          };
-          this.ws.send(JSON.stringify(connectMsg));
-          // 等待短暂时间让 Gateway 处理
-          await new Promise(r => setTimeout(r, 500));
-        }
-        resolve();
+        }, 10000);
+
+        // 当 connect RPC 成功 resolve 时清除超时并 resolve 外层 Promise
+        const onHandshakeSuccess = () => {
+          clearTimeout(handshakeTimer);
+          if (!handshakeDone) {
+            handshakeDone = true;
+            console.log('[GatewayClient] Gateway authentication successful');
+            resolve();
+          }
+        };
+        // 暴露给 _sendConnectRpc 使用
+        (this as unknown as Record<string, unknown>)['_pendingHandshakeResolve'] = onHandshakeSuccess;
       });
 
       ws.once('error', (err) => {
@@ -218,10 +190,10 @@ export class GatewayClient {
           res({ id, error: { message: 'Gateway disconnected' } });
         }
         this.pending.clear();
-        // 仅当连接仍在等待 challenge 完成时才 reject（否则 Promise 已被消费）
-        const reject = challengeReject;
-        challengeReject = null;
-        try { reject?.(new Error('Gateway disconnected')); } catch { /* already settled */ }
+        if (!handshakeDone) {
+          handshakeDone = true;
+          reject(new Error('Gateway disconnected before handshake'));
+        }
         if (this.shouldReconnect) {
           this.reconnectTimer = setTimeout(() => {
             this._connect().catch(() => {});
@@ -231,73 +203,98 @@ export class GatewayClient {
     });
   }
 
-  /** 处理 challenge：构造完整 connect 消息（完全符合 OpenClaw SDK 协议） */
-  private async _handleChallenge(payload: ChallengePayload): Promise<void> {
-    if (!this.ws || !this.privateKeyPem || !this.publicKeyPem || !this.deviceId) {
-      throw new Error('Device key not loaded, cannot respond to challenge');
-    }
+  /**
+   * 发送 connect RPC 请求（符合 OpenClaw Gateway 协议）
+   * 格式：{ id, method:"connect", params:{ minProtocol, maxProtocol, client, auth, [device] } }
+   * 服务端回：{ type:"res", id, ok:true, payload:helloOk }
+   */
+  private async _sendConnectRpc(challengePayload: ChallengePayload, useChallenge: boolean): Promise<void> {
+    if (!this.ws) throw new Error('WebSocket not ready');
 
-    // 从 PEM 直接创建公钥对象（Node.js 自动解析 SPKI 格式）
-    const pubKeyObj = createPublicKey(this.publicKeyPem);
-    // 导出为 JWK 格式获取裸公钥（x 字段是 base64url 编码的 32 字节公钥）
-    const jwk = pubKeyObj.export({ format: 'jwk' });
-    const rawPublicKey = Buffer.from(jwk.x as string, 'base64url');
-
-    // 构建签名 payload（严格符合 OpenClaw SDK buildDeviceAuthPayloadV3 格式）
-    const scopes = 'sessions,agents,gateway';
-    const clientId = 'clawgate';
+    const clientId = 'gateway-client'; // GATEWAY_CLIENT_IDS.GATEWAY_CLIENT — Gateway 允许的枚举值
     const clientMode = 'backend';
     const role = 'operator';
-    const signedAtMs = Date.now();
+    const scopes = ['sessions', 'agents', 'gateway'];
     const platform = process.platform ?? 'darwin';
-    const deviceFamily = platform;
-    const token = this.opts.token;
+    const token = this.opts.operatorToken ?? this.opts.token;
 
-    const authPayload = [
-      'v3',
-      this.deviceId,
-      clientId,
-      clientMode,
-      role,
-      scopes,
-      String(signedAtMs),
-      token,
-      payload.nonce,
-      platform,
-      deviceFamily,
-    ].join('|');
+    let device: Record<string, unknown> | undefined;
 
-    // Ed25519 签名
-    const privateKey = createPrivateKey(this.privateKeyPem);
-    const signature = cryptoSign(null, Buffer.from(authPayload, 'utf8'), privateKey);
-    const signatureB64Url = base64url(signature);
+    if (useChallenge) {
+      if (!this.privateKeyPem || !this.publicKeyPem || !this.deviceId) {
+        throw new Error('Device key not loaded, cannot use challenge mode');
+      }
+      // 构建 Ed25519 签名（符合 OpenClaw SDK buildDeviceAuthPayloadV3 格式）
+      const pubKeyObj = createPublicKey(this.publicKeyPem);
+      const jwk = pubKeyObj.export({ format: 'jwk' });
+      const rawPublicKey = Buffer.from(jwk.x as string, 'base64url');
+      const signedAtMs = Date.now();
 
-    // 完整 connect 消息（严格符合 OpenClaw SDK 实现）
-    const connectMsg = {
-      type: 'connect',
+      const authPayload = [
+        'v3',
+        this.deviceId,
+        clientId,
+        clientMode,
+        role,
+        scopes.join(','),
+        String(signedAtMs),
+        token,
+        challengePayload.nonce,
+        platform,
+        platform, // deviceFamily
+      ].join('|');
+
+      const privateKey = createPrivateKey(this.privateKeyPem);
+      const signature = cryptoSign(null, Buffer.from(authPayload, 'utf8'), privateKey);
+
+      device = {
+        id: this.deviceId,
+        publicKey: base64url(rawPublicKey),
+        signature: base64url(signature),
+        signedAt: signedAtMs,
+        nonce: challengePayload.nonce,
+      };
+      console.log('[GatewayClient] Sending connect RPC with device signature');
+    } else {
+      console.log('[GatewayClient] Sending connect RPC (token-only)');
+    }
+
+    // 构建符合 Gateway 协议的 RPC 请求帧
+    const params: Record<string, unknown> = {
       minProtocol: 3,
       maxProtocol: 3,
       client: {
         id: clientId,
-        version: '0.5.0',
+        version: '1.0.0',
         platform,
-        deviceFamily,
+        deviceFamily: platform,
         mode: clientMode,
       },
-      caps: [] as string[],
+      caps: [],
       auth: { token },
       role,
       scopes,
-      device: {
-        id: this.deviceId,
-        publicKey: base64url(rawPublicKey),
-        signature: signatureB64Url,
-        signedAt: signedAtMs,
-        nonce: payload.nonce,
-      },
+      ...(device ? { device } : {}),
     };
 
-    this.ws.send(JSON.stringify(connectMsg));
+    // 通过 pending Map 发 RPC，等待 ok:true 响应
+    const connectId = String(++this.msgId);
+    const connectPromise = new Promise<void>((res, rej) => {
+      this.pending.set(connectId, (response) => {
+        if (response.error) {
+          rej(new Error(`connect RPC failed: ${response.error.message}`));
+        } else {
+          // 握手成功：通知外层 Promise resolve
+          const onSuccess = (this as unknown as Record<string, unknown>)['_pendingHandshakeResolve'] as (() => void) | undefined;
+          onSuccess?.();
+          res();
+        }
+      });
+    });
+
+    this.ws.send(JSON.stringify({ type: 'req', id: connectId, method: 'connect', params }));
+
+    await connectPromise;
   }
 
   disconnect(): void {
@@ -341,7 +338,7 @@ export class GatewayClient {
         if (res.error) reject(new Error(res.error.message));
         else resolve(res.result as T);
       });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws.send(JSON.stringify({ type: 'req', id, method, params }));
     });
   }
 
