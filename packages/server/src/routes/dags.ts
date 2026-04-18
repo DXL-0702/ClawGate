@@ -48,6 +48,7 @@ interface CreateDagBody {
   definition: DagDefinition;
   trigger?: 'manual' | 'cron' | 'webhook';
   cronExpression?: string;
+  cronTimezone?: string;
   enabled?: boolean;
 }
 
@@ -56,6 +57,7 @@ interface UpdateDagBody {
   definition?: DagDefinition;
   trigger?: 'manual' | 'cron' | 'webhook';
   cronExpression?: string;
+  cronTimezone?: string;
   enabled?: boolean;
 }
 
@@ -130,7 +132,7 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Body: CreateDagBody }>('/dags', async (req, reply) => {
     try {
       const auth = await getAuthContext(req.headers);
-      const { name, definition, trigger = 'manual', cronExpression, enabled = true } = req.body;
+      const { name, definition, trigger = 'manual', cronExpression, cronTimezone, enabled = true } = req.body;
 
       if (!name || !name.trim()) {
         return reply.status(400).send({ error: 'name is required' });
@@ -185,6 +187,7 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
         definition: JSON.stringify(definition),
         trigger,
         cronExpression: cronExpression || null,
+        cronTimezone: cronTimezone || null,
         enabled,
         webhookToken,
         createdAt: now,
@@ -193,7 +196,7 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
 
       if (trigger === 'cron' && enabled && cronExpression) {
         try {
-          await addDagCronJob(id, cronExpression, definition);
+          await addDagCronJob(id, cronExpression, definition, cronTimezone);
         } catch (err) {
           app.log.warn({ err, dagId: id }, 'Failed to register DAG cron job');
         }
@@ -233,7 +236,7 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(403).send({ error: 'Access denied' });
     }
 
-    const { name, definition, trigger, cronExpression, enabled } = req.body;
+    const { name, definition, trigger, cronExpression, cronTimezone, enabled } = req.body;
     const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
 
     if (name !== undefined) {
@@ -255,17 +258,19 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
       }
       updates.cronExpression = cronExpression || null;
     }
+    if (cronTimezone !== undefined) updates.cronTimezone = cronTimezone || null;
     if (enabled !== undefined) updates.enabled = enabled;
 
     await db.update(schema.dags).set(updates).where(eq(schema.dags.id, req.params.id));
 
     const newTrigger = trigger ?? existing.trigger;
     const newCron = cronExpression ?? existing.cronExpression;
+    const newTimezone = cronTimezone ?? existing.cronTimezone ?? undefined;
     const newEnabled = enabled ?? !!existing.enabled;
     const newDefinition = definition ?? JSON.parse(existing.definition);
 
     if (newTrigger === 'cron') {
-      await updateDagCronJob(req.params.id, newCron, newEnabled, newDefinition);
+      await updateDagCronJob(req.params.id, newCron, newEnabled, newDefinition, newTimezone);
     } else {
       await removeDagCronJob(req.params.id);
     }
@@ -333,7 +338,8 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // POST /api/dags/:id/webhook — Webhook 触发（外部调用，无需认证）
-  app.post<{ Params: { id: string }; Querystring: { token: string } }>(
+  // Body 可选 JSON，将通过 {{webhookPayload[.path]}} 在节点 prompt 中引用
+  app.post<{ Params: { id: string }; Querystring: { token: string }; Body: unknown }>(
     '/dags/:id/webhook',
     async (req, reply) => {
       const db = getDb();
@@ -347,6 +353,19 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
       if (dag.trigger !== 'webhook') return reply.status(400).send({ error: 'DAG is not configured for webhook trigger' });
       if (!dag.enabled) return reply.status(400).send({ error: 'DAG is disabled' });
       if (dag.webhookToken !== req.query.token) return reply.status(401).send({ error: 'Invalid webhook token' });
+
+      // 50KB Payload 上限保护（防止 BullMQ/Redis 内存膨胀）
+      const webhookPayload = req.body;
+      if (webhookPayload !== undefined && webhookPayload !== null) {
+        try {
+          const size = Buffer.byteLength(JSON.stringify(webhookPayload), 'utf8');
+          if (size > 50 * 1024) {
+            return reply.status(413).send({ error: `Webhook payload too large: ${size} bytes (max 50KB)` });
+          }
+        } catch {
+          return reply.status(400).send({ error: 'Webhook payload must be valid JSON' });
+        }
+      }
 
       const definition = JSON.parse(dag.definition) as DagDefinition;
       const runId = crypto.randomUUID();
@@ -362,7 +381,7 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
       });
 
       const queue = getDagQueue();
-      await queue.add('execute-dag', { runId, dagId: dag.id, triggeredBy: 'webhook', definition });
+      await queue.add('execute-dag', { runId, dagId: dag.id, triggeredBy: 'webhook', definition, webhookPayload });
 
       return { runId, status: 'pending', triggeredBy: 'webhook' };
     }

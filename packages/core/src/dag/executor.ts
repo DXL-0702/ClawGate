@@ -28,6 +28,8 @@ export interface DagRunParams {
   };
   gateway: GatewayClient;
   db?: Db;
+  /** Webhook 触发时携带的 request body，可在节点 prompt 中通过 {{webhookPayload.*}} 引用 */
+  webhookPayload?: unknown;
 }
 
 export interface DagRunResult {
@@ -44,7 +46,7 @@ export interface DagRunResult {
  * 从 Worker 回调中提取，支持独立测试（传入 Mock GatewayClient + 测试 DB）。
  */
 export async function executeDagRun(params: DagRunParams): Promise<DagRunResult> {
-  const { runId, definition, gateway } = params;
+  const { runId, definition, gateway, webhookPayload } = params;
   const db = params.db ?? getDb();
   const now = new Date().toISOString();
 
@@ -246,7 +248,7 @@ export async function executeDagRun(params: DagRunParams): Promise<DagRunResult>
       const node = nodeMap.get(nodeId)!;
       if (node.type !== 'agent') continue;
 
-      const resolvedPrompt = substituteVariables(node.prompt, context);
+      const resolvedPrompt = substituteVariables(node.prompt, context, webhookPayload);
 
       // 缓存检查（opt-in，cacheTtl > 0 时生效）
       if ((node.cacheTtl ?? 0) > 0) {
@@ -313,7 +315,7 @@ export async function executeDagRun(params: DagRunParams): Promise<DagRunResult>
       for (const nodeId of agentNodeIds) {
         const node = nodeMap.get(nodeId)!;
         if (node.type !== 'agent') continue;
-        const resolvedPrompt = substituteVariables(node.prompt, context);
+        const resolvedPrompt = substituteVariables(node.prompt, context, webhookPayload);
         const ttl = node.cacheTtl ?? 0;
 
         if (ttl > 0) {
@@ -433,7 +435,7 @@ export function startDagWorker(): Worker {
   dagWorker = new Worker<DagExecutionJob>(
     'dag-execution',
     async (job: Job<DagExecutionJob>) => {
-      let { runId, dagId, definition, triggeredBy = 'manual', environment = 'production' } = job.data;
+      let { runId, dagId, definition, triggeredBy = 'manual', environment = 'production', webhookPayload } = job.data;
       const db = getDb();
       const now = new Date().toISOString();
 
@@ -496,7 +498,7 @@ export function startDagWorker(): Worker {
       }
 
       try {
-        return await executeDagRun({ runId, definition, gateway, db });
+        return await executeDagRun({ runId, definition, gateway, db, webhookPayload });
       } finally {
         if (isPersonalMode) {
           try {

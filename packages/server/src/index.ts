@@ -104,34 +104,77 @@ startHealthCheckWorker();
 app.log.info('Instance health check scheduler started (running every minute)');
 
 // 启动时注册所有启用的 Cron DAG
-import { getDb as getDbForCron, schema as schemaForCron, updateDagCronJob, getYamlConfig } from '@clawgate/core';
-import { eq, and } from 'drizzle-orm';
+import { getDb as getDbForCron, schema as schemaForCron, updateDagCronJob, getYamlConfig, removeDagCronJob, listAllDagCronSchedulerIds } from '@clawgate/core';
+import { eq } from 'drizzle-orm';
 (async () => {
   try {
     const db = getDbForCron();
-    const cronDags = await db
+
+    // 1. 查 SQLite 中所有 cron DAG（含 disabled，用于孤儿检测）
+    const allCronDags = await db
       .select()
       .from(schemaForCron.dags)
-      .where(and(
-        eq(schemaForCron.dags.trigger, 'cron'),
-        eq(schemaForCron.dags.enabled, true)
-      ));
+      .where(eq(schemaForCron.dags.trigger, 'cron'));
 
-    for (const dag of cronDags) {
+    const allCronDagIds = new Set(allCronDags.map((d) => d.id));
+    const enabledCronDags = allCronDags.filter((d) => d.enabled);
+
+    // 2. 检测 Redis 中的孤儿 scheduler（DAG 已删除/改触发器但 Redis 残留）
+    let orphanCount = 0;
+    let cleanedCount = 0;
+    try {
+      const existingSchedulerIds = await listAllDagCronSchedulerIds();
+      const orphans = existingSchedulerIds.filter((id) => !allCronDagIds.has(id));
+      orphanCount = orphans.length;
+      for (const orphanId of orphans) {
+        try {
+          await removeDagCronJob(orphanId);
+          cleanedCount++;
+        } catch (err) {
+          app.log.warn({ err, dagId: orphanId }, '[Cron Bootstrap] Failed to remove orphan scheduler');
+        }
+      }
+    } catch (err) {
+      app.log.warn({ err }, '[Cron Bootstrap] Failed to scan orphan schedulers');
+    }
+
+    // 3. 注册所有 cron DAG（updateDagCronJob 内部根据 enabled 决定 add 或 remove）
+    let registeredCount = 0;
+    let failureCount = 0;
+    let disabledCleanedCount = 0;
+
+    for (const dag of allCronDags) {
       try {
         const definition = JSON.parse(dag.definition);
-        await updateDagCronJob(dag.id, dag.cronExpression, true, definition);
-        app.log.info(`Registered cron DAG: ${dag.name} (${dag.cronExpression})`);
+        const timezone = dag.cronTimezone ?? undefined;
+        await updateDagCronJob(dag.id, dag.cronExpression, !!dag.enabled, definition, timezone);
+        if (dag.enabled) {
+          registeredCount++;
+          app.log.info(`[Cron Bootstrap] Registered: ${dag.name} (${dag.cronExpression}${timezone ? `, tz=${timezone}` : ''})`);
+        } else {
+          disabledCleanedCount++;
+        }
       } catch (err) {
-        app.log.error({ err, dagId: dag.id }, 'Failed to register cron DAG on startup');
+        failureCount++;
+        app.log.error({ err, dagId: dag.id, dagName: dag.name }, '[Cron Bootstrap] Failed to register cron DAG');
       }
     }
 
-    if (cronDags.length > 0) {
-      app.log.info(`Total cron DAGs registered: ${cronDags.length}`);
+    // 4. 汇总日志（QA 与运维诊断关键指标）
+    app.log.info(
+      `[Cron Bootstrap] Summary: enabled=${enabledCronDags.length} ` +
+      `registered=${registeredCount} ` +
+      `failures=${failureCount} ` +
+      `orphans_detected=${orphanCount} ` +
+      `orphans_cleaned=${cleanedCount} ` +
+      `disabled_cleaned=${disabledCleanedCount}`
+    );
+
+    if (failureCount > 0) {
+      app.log.warn(`[Cron Bootstrap] ${failureCount} cron DAG(s) failed to register — check above errors`);
     }
   } catch (err) {
-    app.log.error({ err }, 'Failed to initialize cron DAGs on startup');
+    app.log.error({ err }, '[Cron Bootstrap] Failed to initialize cron DAGs on startup');
   }
 })();
 

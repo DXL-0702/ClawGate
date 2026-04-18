@@ -53,6 +53,8 @@ export interface DagExecutionJob {
   triggeredBy: 'manual' | 'cron' | 'webhook';
   /** 指定运行环境（用于 GatewayPool 选择实例） */
   environment?: 'development' | 'staging' | 'production';
+  /** Webhook 触发时携带的 request body，可在节点 prompt 中通过 {{webhookPayload.*}} 引用 */
+  webhookPayload?: unknown;
   definition: {
     nodes: DagNodeDef[];
     edges?: DagEdge[];
@@ -82,11 +84,13 @@ export function initDagQueue(): Queue {
  * @param dagId DAG ID
  * @param cronExpression Cron 表达式，格式：minute hour day month weekday
  * @param definition DAG 定义
+ * @param timezone IANA 时区字符串（如 "Asia/Shanghai"），默认 UTC
  */
 export async function addDagCronJob(
   dagId: string,
   cronExpression: string,
-  definition: DagExecutionJob['definition']
+  definition: DagExecutionJob['definition'],
+  timezone?: string
 ): Promise<void> {
   const queue = getDagQueue();
   const jobId = `dag-cron-${dagId}`;
@@ -97,7 +101,7 @@ export async function addDagCronJob(
   // BullMQ v5: 使用 Queue.upsertJobScheduler 创建定时任务
   await queue.upsertJobScheduler(
     jobId,
-    { pattern: cronExpression }, // Cron 模式
+    { pattern: cronExpression, ...(timezone ? { tz: timezone } : {}) },
     {
       name: 'execute-dag',
       data: { dagId, definition, triggeredBy: 'cron', runId: '' } as DagExecutionJob,
@@ -125,20 +129,36 @@ export async function removeDagCronJob(dagId: string): Promise<void> {
  * @param cronExpression Cron 表达式
  * @param enabled 是否启用
  * @param definition DAG 定义
+ * @param timezone IANA 时区字符串（如 "Asia/Shanghai"），默认 UTC
  */
 export async function updateDagCronJob(
   dagId: string,
   cronExpression: string | null,
   enabled: boolean,
-  definition: DagExecutionJob['definition']
+  definition: DagExecutionJob['definition'],
+  timezone?: string
 ): Promise<void> {
   // 先移除现有任务
   await removeDagCronJob(dagId);
 
   // 如果启用且有 Cron 表达式，添加新任务
   if (enabled && cronExpression) {
-    await addDagCronJob(dagId, cronExpression, definition);
+    await addDagCronJob(dagId, cronExpression, definition, timezone);
   }
+}
+
+/**
+ * 列出所有 BullMQ 中已注册的 DAG Cron Scheduler ID（去掉 dag-cron- 前缀）
+ * 用于启动时检测孤儿 scheduler（DAG 已删/已禁用但 Redis 残留）
+ */
+export async function listAllDagCronSchedulerIds(): Promise<string[]> {
+  const queue = getDagQueue();
+  // 取全部（start=0, end=-1 表示全部）
+  const schedulers = await queue.getJobSchedulers(0, -1, true);
+  return schedulers
+    .map((s) => s.key)
+    .filter((k): k is string => typeof k === 'string' && k.startsWith('dag-cron-'))
+    .map((k) => k.replace(/^dag-cron-/, ''));
 }
 
 export function getDagQueue(): Queue {

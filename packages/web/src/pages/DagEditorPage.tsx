@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ReactFlow, {
   Background,
@@ -74,6 +74,25 @@ function DagEditorInner() {
   const [isSaving, setIsSaving] = useState(false);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('clawgate-api-key') || '');
 
+  // 触发器配置状态
+  const [trigger, setTrigger] = useState<'manual' | 'cron' | 'webhook'>('manual');
+  const [cronExpression, setCronExpression] = useState('');
+  const [cronTimezone, setCronTimezone] = useState('');
+  const [showTriggerPanel, setShowTriggerPanel] = useState(false);
+  const triggerPanelRef = useRef<HTMLDivElement>(null);
+
+  // 点击浮层外部关闭
+  useEffect(() => {
+    if (!showTriggerPanel) return;
+    const handler = (e: MouseEvent) => {
+      if (triggerPanelRef.current && !triggerPanelRef.current.contains(e.target as Node)) {
+        setShowTriggerPanel(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showTriggerPanel]);
+
   // 根据节点状态更新连线样式（执行时流动效果）
   useEffect(() => {
     updateEdgesWithStatus(nodeStatuses);
@@ -106,6 +125,9 @@ function DagEditorInner() {
         .then((r) => r.json())
         .then((data) => {
           setDagName(data.name);
+          if (data.trigger) setTrigger(data.trigger);
+          if (data.cronExpression) setCronExpression(data.cronExpression);
+          if (data.cronTimezone) setCronTimezone(data.cronTimezone);
           if (data.definition) {
             loadFromDefinition(data.definition);
             setTimeout(() => {
@@ -172,8 +194,11 @@ function DagEditorInner() {
     try {
       const definition = toDefinition();
 
-      const body = {
+      const body: Record<string, unknown> = {
         name: dagName,
+        trigger,
+        ...(trigger === 'cron' && cronExpression ? { cronExpression } : {}),
+        ...(trigger === 'cron' && cronTimezone ? { cronTimezone } : {}),
         definition: {
           nodes: definition.nodes.map((n) => {
             if (n.data.type === 'condition') {
@@ -335,7 +360,143 @@ function DagEditorInner() {
         {/* 分隔线 */}
         <div className="h-6 w-px bg-gray-800 mx-1" />
 
-        {/* 添加节点按钮 - 次要操作 */}
+        {/* 触发器配置按钮 */}
+        <div className="relative">
+          <button
+            onClick={() => setShowTriggerPanel((v) => !v)}
+            className={`group flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border transition-all duration-200 ${
+              trigger !== 'manual'
+                ? 'text-amber-300 bg-amber-900/20 border-amber-700/40 hover:bg-amber-800/30'
+                : 'text-gray-300 bg-gray-800/60 border-gray-700/50 hover:bg-gray-700/60 hover:text-white hover:border-gray-600'
+            }`}
+            title="触发器配置"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+            </svg>
+            <span className="hidden sm:inline">
+              {trigger === 'cron' ? (cronExpression || '定时') : trigger === 'webhook' ? 'Webhook' : '手动'}
+            </span>
+          </button>
+
+        {/* 触发器浮层面板 */}
+          {showTriggerPanel && (
+            <div ref={triggerPanelRef} className="absolute top-full left-0 mt-1.5 w-72 bg-gray-900 border border-gray-700/60 rounded-xl shadow-[0_8px_32px_-4px_rgba(0,0,0,0.5)] z-50 overflow-hidden">
+              {/* 面板头部 */}
+              <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">触发器配置</span>
+                <button onClick={() => setShowTriggerPanel(false)} className="text-gray-500 hover:text-gray-300 transition-colors">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="p-4 space-y-3">
+                {/* 触发类型选择 */}
+                <div className="grid grid-cols-3 gap-1.5 p-1 bg-gray-800/60 rounded-lg">
+                  {(['manual', 'cron', 'webhook'] as const).map((triggerType) => (
+                    <button
+                      key={triggerType}
+                      onClick={() => setTrigger(triggerType)}
+                      className={`py-1.5 text-[11px] font-medium rounded-md transition-all ${
+                        trigger === triggerType
+                          ? 'bg-amber-600 text-white shadow-sm'
+                          : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/50'
+                      }`}
+                    >
+                      {triggerType === 'manual' ? '手动' : triggerType === 'cron' ? '定时' : 'Webhook'}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Cron 表达式 */}
+                {trigger === 'cron' && (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                        Cron 表达式
+                      </label>
+                      <input
+                        type="text"
+                        value={cronExpression}
+                        onChange={(e) => setCronExpression(e.target.value)}
+                        placeholder="*/5 * * * *"
+                        className="w-full px-3 py-2 text-xs bg-gray-800/80 border border-gray-700/60 rounded-lg text-white placeholder-gray-600 focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 focus:outline-none font-mono transition-all"
+                      />
+                      <p className="mt-1 text-[10px] text-gray-600">格式：分 时 日 月 周（5 字段）</p>
+                    </div>
+
+                    {/* 时区选择 */}
+                    <div>
+                      <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                        时区
+                      </label>
+                      <select
+                        value={cronTimezone}
+                        onChange={(e) => setCronTimezone(e.target.value)}
+                        className="w-full px-3 py-2 text-xs bg-gray-800/80 border border-gray-700/60 rounded-lg text-white focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 focus:outline-none transition-all appearance-none cursor-pointer"
+                        style={{ backgroundImage: 'none' }}
+                      >
+                        <option value="">UTC（默认）</option>
+                        <optgroup label="亚洲">
+                          <option value="Asia/Shanghai">Asia/Shanghai（北京 UTC+8）</option>
+                          <option value="Asia/Tokyo">Asia/Tokyo（东京 UTC+9）</option>
+                          <option value="Asia/Seoul">Asia/Seoul（首尔 UTC+9）</option>
+                          <option value="Asia/Singapore">Asia/Singapore（新加坡 UTC+8）</option>
+                          <option value="Asia/Hong_Kong">Asia/Hong_Kong（香港 UTC+8）</option>
+                          <option value="Asia/Taipei">Asia/Taipei（台北 UTC+8）</option>
+                          <option value="Asia/Kolkata">Asia/Kolkata（印度 UTC+5:30）</option>
+                          <option value="Asia/Dubai">Asia/Dubai（迪拜 UTC+4）</option>
+                        </optgroup>
+                        <optgroup label="欧洲">
+                          <option value="Europe/London">Europe/London（伦敦）</option>
+                          <option value="Europe/Paris">Europe/Paris（巴黎 UTC+1）</option>
+                          <option value="Europe/Berlin">Europe/Berlin（柏林 UTC+1）</option>
+                          <option value="Europe/Moscow">Europe/Moscow（莫斯科 UTC+3）</option>
+                        </optgroup>
+                        <optgroup label="美洲">
+                          <option value="America/New_York">America/New_York（纽约 UTC-5）</option>
+                          <option value="America/Chicago">America/Chicago（芝加哥 UTC-6）</option>
+                          <option value="America/Denver">America/Denver（丹佛 UTC-7）</option>
+                          <option value="America/Los_Angeles">America/Los_Angeles（洛杉矶 UTC-8）</option>
+                          <option value="America/Sao_Paulo">America/Sao_Paulo（圣保罗 UTC-3）</option>
+                        </optgroup>
+                        <optgroup label="大洋洲">
+                          <option value="Australia/Sydney">Australia/Sydney（悉尼 UTC+11）</option>
+                          <option value="Pacific/Auckland">Pacific/Auckland（奥克兰 UTC+13）</option>
+                        </optgroup>
+                      </select>
+                      {cronTimezone && (
+                        <p className="mt-1 text-[10px] text-amber-500/70">{cronTimezone}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Webhook 提示 */}
+                {trigger === 'webhook' && (
+                  <div className="px-3 py-2.5 bg-gray-800/50 rounded-lg border border-gray-700/40">
+                    <p className="text-[11px] text-gray-400">Webhook token 将在保存后生成，通过 API 查看</p>
+                  </div>
+                )}
+
+                {/* 手动提示 */}
+                {trigger === 'manual' && (
+                  <div className="px-3 py-2.5 bg-gray-800/50 rounded-lg border border-gray-700/40">
+                    <p className="text-[11px] text-gray-400">手动触发，点击「运行」按钮或通过 API 执行</p>
+                  </div>
+                )}
+
+                {/* 保存提示 */}
+                <p className="text-[10px] text-gray-600 border-t border-gray-800 pt-2">配置将在保存工作流时生效</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 分隔线 */}
+        <div className="h-6 w-px bg-gray-800 mx-1" />
         <button
           onClick={handleAddNode}
           className="group flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-300 bg-gray-800/60 border border-gray-700/50 rounded-lg hover:bg-gray-700/60 hover:text-white hover:border-gray-600 transition-all duration-200"

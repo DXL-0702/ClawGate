@@ -54,6 +54,7 @@ export const dags = sqliteTable('dags', {
     .notNull()
     .default('manual'),
   cronExpression: text('cron_expression'),  // Cron 表达式 (如 "*/5 * * * *")
+  cronTimezone: text('cron_timezone'),       // Cron 时区 (如 "Asia/Shanghai"，默认 UTC)
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   webhookToken: text('webhook_token'),       // Webhook 验证 token
   createdAt: text('created_at').notNull(),

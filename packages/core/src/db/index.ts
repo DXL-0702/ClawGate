@@ -248,6 +248,20 @@ function migrate(sqlite: InstanceType<typeof Database>): void {
     }
   }
 
+  // D1: dags 表添加 cron_timezone 列（如果不存在）
+  if (existingTables.has('dags')) {
+    try {
+      const dagsColumns = sqlite.prepare('PRAGMA table_info(dags)').all() as { name: string }[];
+      const hasCronTimezone = dagsColumns.some(c => c.name === 'cron_timezone');
+      if (!hasCronTimezone) {
+        sqlite.exec(`ALTER TABLE dags ADD COLUMN cron_timezone TEXT`);
+        console.log('[DB Migration] Added cron_timezone column to dags table');
+      }
+    } catch (err) {
+      console.error('[DB Migration] Failed to add cron_timezone to dags:', err);
+    }
+  }
+
   // =========================================================================
   // 未来迁移模板（复制使用）
   // =========================================================================
