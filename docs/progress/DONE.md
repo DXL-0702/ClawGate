@@ -476,53 +476,6 @@ POST /api/dags/:id/webhook?token=wrong
 
 ---
 
-## v1.0 Phase 4 — SDK 首版（已完成）
-
-**完成时间**：2026-04-18
-
-### `@clawgate/sdk` — Node.js SDK 首版
-
-- **包位置**：`packages/sdk/`
-- **运行时依赖**：零（仅内部依赖 `@clawgate/shared`）
-- **构建产物**：`dist/` 总计 11.2 KB（< 30 KB 目标），含 `.d.ts` 类型声明
-- **公开 API**：11 个方法，覆盖双场景
-
-**个人场景（4）**：
-- `route(prompt, sessionKey?)` — 请求路由决策（snake→camel 字段转换）
-- `stats()` — 路由分布/成本/熔断器聚合统计
-- `health()` — 健康探针（含 OpenClaw 连接状态）
-- `chat(messages, opts?)` — OpenAI 兼容推理；`opts.stream = true` 返回 `AsyncIterable<ChatChunk>`
-
-**团队场景（7）**：
-- `listInstances(filter?)` / `getInstanceLoad(id)` — 实例列表 + 实时负载
-- `listAlerts(filter?)` / `ackAlert(id)` — 告警查询 + 确认
-- `triggerDag(id)` / `getDagRun(runId)` / `triggerWebhook(dagId, token)` — DAG 自动化触发与结果查询
-
-**错误模型**：三类结构化错误
-- `ClawGateError` — 基础（网络 / 超时 / 5xx）
-- `ClawGateAuthError` — 401 / 403（apiKey 缺失或无效）
-- `ClawGateBudgetError` — 429 `daily_budget_exceeded`（含 `spentUsd` / `limitUsd`）
-
-**内部实现亮点**：
-- 原生 `fetch` + AbortController 超时控制，流式调用禁用超时
-- `X-API-Key` 自动注入（团队方法要求 apiKey，调用即抛 `ClawGateAuthError`）
-- `parseSseStream()` SSE 解析器（纯 `data: ` 行协议，`[DONE]` 终止）
-- `@clawgate/shared` 新增共享类型：`StatsOverview / HealthStatus / Alert / Instance / InstanceLoad / DagRunDetail / ChatMessage / ChatCompletion / ChatChunk`
-
-**验证结果**：
-
-| 检查项 | 状态 |
-|--------|------|
-| 单元测试 | ✅ 17/17 通过（client / route / team 三组） |
-| 类型检查 | ✅ `tsc` 无报错 |
-| 全 monorepo build | ✅ 6/6 包通过 |
-| bundle 体积 | ✅ 11.2 KB (< 30 KB) |
-| 端到端真实 API 验证 | 🔜 推迟至 Phase 4 整包 QA |
-
-**v1.0 Phase 4 SDK 核心交付**：外部开发者集成 ClawGate 由"手写 fetch + 猜测字段"降为 `npm install @clawgate/sdk` + 1 行构造；为后续 Python SDK 提供 API 契约参考。
-
----
-
 ## v1.0 Phase 1 — Rust 熔断器 + Streaming + Stats Dashboard（已完成）
 
 **完成时间**：2026-04-18

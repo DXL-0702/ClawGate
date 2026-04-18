@@ -169,43 +169,6 @@ POST /circuit/reset/:provider         # manually reset a provider's circuit
 
 ---
 
-## 📦 Node.js SDK
-
-For applications that want to embed ClawGate, the official SDK is available as `@clawgate/sdk` (zero runtime deps, 11 KB bundle):
-
-```ts
-import { ClawGate } from '@clawgate/sdk';
-
-const gate = new ClawGate({ baseUrl: 'http://localhost:3000' });
-
-// Routing decision (no model call)
-const decision = await gate.route('write a sort algorithm');
-// { model: 'qwen2.5:7b', layer: 'L2', cacheHit: false, latencyMs: 12 }
-
-// OpenAI-compatible inference (streaming)
-const stream = await gate.chat(
-  [{ role: 'user', content: 'Explain quicksort' }],
-  { stream: true },
-);
-for await (const chunk of stream) {
-  process.stdout.write(chunk.choices[0].delta.content ?? '');
-}
-
-// Team-mode ops (requires apiKey)
-const ops = new ClawGate({ baseUrl: 'http://team:3000', apiKey: 'k-xxx' });
-const { alerts } = await ops.listAlerts({ acknowledged: false });
-const { runId } = await ops.triggerDag('dag-release');
-const detail = await ops.getDagRun(runId);
-```
-
-**Methods (11)**: `route` · `stats` · `health` · `chat` (personal) · `listInstances` · `getInstanceLoad` · `listAlerts` · `ackAlert` · `triggerDag` · `getDagRun` · `triggerWebhook` (team).
-
-**Errors**: `ClawGateError` / `ClawGateAuthError` (401/403) / `ClawGateBudgetError` (429 with `spentUsd` + `limitUsd`).
-
-A Python SDK is planned next, using this one as the API contract reference.
-
----
-
 ## 📦 Project Structure
 
 ```
@@ -214,9 +177,8 @@ ClawGate/
 │   ├── shared/          # shared TypeScript types
 │   ├── core/            # config, gateway client, router client, DB
 │   ├── server/          # Fastify API server (REST + WebSocket)
-│   ├── web/              # React 18 + shadcn/ui dashboard
-│   ├── sdk/              # @clawgate/sdk — official Node.js SDK (zero deps)
-│   └── cli/              # Commander.js CLI
+│   ├── web/             # React 18 + shadcn/ui dashboard
+│   └── cli/             # Commander.js CLI
 ├── services/
 │   ├── router-rust/     # L1 hash cache + circuit breaker (Axum/Tokio)
 │   └── intent-python/   # L2/L3/L4 intent service (FastAPI + Qdrant)
@@ -241,7 +203,9 @@ ClawGate/
 | v0.6 | ✅ | DAG advanced: run history, condition branch, delay node, output cache (Redis opt-in, 50KB guard) |
 | v1.0 Phase 1 | ✅ | Rust circuit breaker · Streaming + Failover + cost tracking · Stats Dashboard · Docker release |
 | v1.0 Phase 2-3 | ✅ | Team deployment · Health overview · Auto-offline alerts |
-| v1.0 Phase 4 | 🔄 | **Node.js SDK ✅** · Python SDK · Watchtower auto-update · Issue 6 dual-mode auth |
+| **v1.0 Delivery Readiness** | 🔧 | Fix gaps (Web UI in Docker · Issue 6 dual-mode auth · team compose) → tech debt → polish → docs → end-to-end QA |
+| **v1.0 GA** | 🎯 | Target — all Delivery Readiness phases verified |
+| v1.x Phase 4 | 🔜 (post-GA) | SDKs · Watchtower auto-update · cross-instance log aggregation · Remote SSH · plugin system |
 
 **v0.6 Wave 4 Delivery (2026-04-17)**:
 - ✅ 15-scenario integration test suite (46/46 passing), covering condition+delay combinations
