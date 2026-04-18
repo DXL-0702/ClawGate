@@ -474,3 +474,88 @@ POST /api/dags/:id/webhook?token=wrong
   - 长时间（>30min）offline 实例日志告警
   - `server/index.ts` 启动时注册 Scheduler + Worker，SIGTERM/SIGINT 优雅清理
 
+---
+
+## v1.0 Phase 4 — SDK 首版（已完成）
+
+**完成时间**：2026-04-18
+
+### `@clawgate/sdk` — Node.js SDK 首版
+
+- **包位置**：`packages/sdk/`
+- **运行时依赖**：零（仅内部依赖 `@clawgate/shared`）
+- **构建产物**：`dist/` 总计 11.2 KB（< 30 KB 目标），含 `.d.ts` 类型声明
+- **公开 API**：11 个方法，覆盖双场景
+
+**个人场景（4）**：
+- `route(prompt, sessionKey?)` — 请求路由决策（snake→camel 字段转换）
+- `stats()` — 路由分布/成本/熔断器聚合统计
+- `health()` — 健康探针（含 OpenClaw 连接状态）
+- `chat(messages, opts?)` — OpenAI 兼容推理；`opts.stream = true` 返回 `AsyncIterable<ChatChunk>`
+
+**团队场景（7）**：
+- `listInstances(filter?)` / `getInstanceLoad(id)` — 实例列表 + 实时负载
+- `listAlerts(filter?)` / `ackAlert(id)` — 告警查询 + 确认
+- `triggerDag(id)` / `getDagRun(runId)` / `triggerWebhook(dagId, token)` — DAG 自动化触发与结果查询
+
+**错误模型**：三类结构化错误
+- `ClawGateError` — 基础（网络 / 超时 / 5xx）
+- `ClawGateAuthError` — 401 / 403（apiKey 缺失或无效）
+- `ClawGateBudgetError` — 429 `daily_budget_exceeded`（含 `spentUsd` / `limitUsd`）
+
+**内部实现亮点**：
+- 原生 `fetch` + AbortController 超时控制，流式调用禁用超时
+- `X-API-Key` 自动注入（团队方法要求 apiKey，调用即抛 `ClawGateAuthError`）
+- `parseSseStream()` SSE 解析器（纯 `data: ` 行协议，`[DONE]` 终止）
+- `@clawgate/shared` 新增共享类型：`StatsOverview / HealthStatus / Alert / Instance / InstanceLoad / DagRunDetail / ChatMessage / ChatCompletion / ChatChunk`
+
+**验证结果**：
+
+| 检查项 | 状态 |
+|--------|------|
+| 单元测试 | ✅ 17/17 通过（client / route / team 三组） |
+| 类型检查 | ✅ `tsc` 无报错 |
+| 全 monorepo build | ✅ 6/6 包通过 |
+| bundle 体积 | ✅ 11.2 KB (< 30 KB) |
+| 端到端真实 API 验证 | 🔜 推迟至 Phase 4 整包 QA |
+
+**v1.0 Phase 4 SDK 核心交付**：外部开发者集成 ClawGate 由"手写 fetch + 猜测字段"降为 `npm install @clawgate/sdk` + 1 行构造；为后续 Python SDK 提供 API 契约参考。
+
+---
+
+## v1.0 Phase 1 — Rust 熔断器 + Streaming + Stats Dashboard（已完成）
+
+**完成时间**：2026-04-18
+
+### Wave 1 — Rust 熔断器 + 规则引擎增强
+
+- **`services/router-rust/src/circuit/mod.rs`** — CircuitBreaker 状态机（Closed→Open→HalfOpen→Closed）
+  - 环境变量可调参数：failure_threshold / reset_timeout / half_open_successes
+  - 8 单元测试通过（初始状态/开路阈值/HalfOpen 探针/恢复/多 Provider 隔离）
+- **新增端点** — `GET /circuit/status`、`POST /circuit/report`、`POST /circuit/reset/:provider`
+- **规则引擎增强** — `RuleConfig`/`RuleAnalysis` 结构体，可配置关键字/代码标记/词数阈值
+
+### Wave 2 — Node.js Streaming + 成本追踪 + Failover
+
+- **预算检查** — `checkBudget()` 读取 Redis `costs_realtime`，超限返回 429 `daily_budget_exceeded`
+- **Failover + 熔断器集成** — `dispatchWithFailover()` 跳过 Open Provider，逐 Provider 尝试，自动上报结果
+- **Temperature 透传** — Anthropic/OpenAI/Ollama 三端点均支持 temperature 参数转发
+- **自动成本追踪** — 成功后 `setImmediate` 调用 `incrCostRealtime`，价格表静态配置（Claude 3/15、GPT-4o 2.5/10）
+- **SSE Streaming** — `stream: true` 分支完整实现，三 Provider 分别使用原生 streaming API，逐块写入 `text/event-stream`
+- **OpenClaw 可选模式** — `CLAWGATE_REQUIRE_OPENCLAW=false`（默认），无 OpenClaw 也能启动，Agent/Session/DAG 功能降级但路由核心可用
+
+### Wave 3 — Stats Dashboard
+
+- **`GET /api/stats/overview`** — 聚合路由分布、实时成本、7 日趋势、熔断器状态
+- **`StatsPage.tsx`** — 四区块可视化（Recharts BarChart 路由层分布、LineChart 成本趋势、PieChart 模型用量、CircuitBadge 熔断器状态）
+- **Web UI 导航** — 侧边栏新增 Stats 入口（图表 SVG 图标）
+
+### Docker 发布与开箱即用
+
+- **三服务镜像** — `ghcr.io/dxl-0702/clawgate-router:latest`、`clawgate-intent:latest`、`clawgate-server:latest`
+- **GitHub Actions CI** — `.github/workflows/docker.yml`，三 job 并行构建，linux/amd64 + linux/arm64 多架构
+- **`docker-compose.prod.yml`** — 生产/体验部署，含 Ollama 模型预热（`ollama-init` 一次性容器自动拉取 `nomic-embed-text` + `qwen2.5:3b`）
+- **YAML 自生成** — 首次启动若无 `clawgate.yaml`，Server 自动生成默认配置
+- **`.env.example`** — 环境变量模板，含 Provider Keys、运行模式、熔断器调优参数
+
+---

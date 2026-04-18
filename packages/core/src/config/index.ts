@@ -1,5 +1,5 @@
 import { readFile, watch } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { OpenClawConfig } from '@clawgate/shared';
@@ -15,6 +15,19 @@ const defaults: OpenClawConfig = {
 
 let config: OpenClawConfig = { ...defaults };
 
+/** 从 device-auth.json 读取 operator token（Gateway 认证需要） */
+function loadOperatorToken(): string | null {
+  try {
+    const path = join(OPENCLAW_DIR, 'identity', 'device-auth.json');
+    if (!existsSync(path)) return null;
+    const raw = readFileSync(path, 'utf-8');
+    const data = JSON.parse(raw) as { tokens?: { operator?: { token?: string } } };
+    return data.tokens?.operator?.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function load(): Promise<void> {
   const cfgPath = join(OPENCLAW_DIR, 'openclaw.json');
   if (!existsSync(cfgPath)) return;
@@ -28,11 +41,21 @@ async function load(): Promise<void> {
     const gatewayAuth = (gateway.auth ?? {}) as Record<string, unknown>;
     const gatewayPort = gateway.port as number | undefined;
 
+    // 优先使用 openclaw.json 的 token，若为空则尝试 device-auth.json 的 operator token
+    let token = (gatewayAuth.token as string) ?? defaults.gatewayToken;
+    if (!token) {
+      const operatorToken = loadOperatorToken();
+      if (operatorToken) {
+        token = operatorToken;
+        console.log('[config] Using operator token from device-auth.json');
+      }
+    }
+
     config = {
       gatewayUrl: gatewayPort
         ? `ws://127.0.0.1:${gatewayPort}`
         : defaults.gatewayUrl,
-      gatewayToken: (gatewayAuth.token as string) ?? defaults.gatewayToken,
+      gatewayToken: token,
       defaultModel: 'claude-sonnet-4-6',
       agentsDir: join(OPENCLAW_DIR, 'agents'),
     };

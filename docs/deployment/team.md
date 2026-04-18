@@ -17,6 +17,44 @@
 
 ---
 
+## 分层安全架构（推荐）
+
+ClawGate 支持两种 Gateway 认证模式，适应不同安全需求：
+
+| 模式 | 适用场景 | 安全性 | 配置方式 |
+|------|---------|--------|---------|
+| **Token-Only** | 开发环境、内网团队 | 中 | `GATEWAY_AUTH_MODE=token` |
+| **Challenge-Response** | 生产环境、公网暴露 | 高 | `GATEWAY_AUTH_MODE=challenge` |
+
+### 模式对比
+
+**Token-Only（开发首选）**
+- 仅使用 Bearer Token 认证
+- 部署简单，无需设备密钥
+- 适合本地开发、小团队内网
+
+**Challenge-Response（生产推荐）**
+- Ed25519 设备签名 + Token 双因子
+- 每个设备独立密钥，可单独吊销
+- 适合公网中央服务器、企业级部署
+
+### 快速选择
+
+```bash
+# 开发/测试环境（简单快速）
+GATEWAY_AUTH_MODE=token
+
+# 生产/公网环境（安全优先）
+GATEWAY_AUTH_MODE=challenge
+# 需配合 device.json 设备注册（见下文"设备密钥管理"）
+
+# 自动检测（默认）
+# 有 device.json → challenge，无 → token
+GATEWAY_AUTH_MODE=auto
+```
+
+---
+
 ## 中央服务器部署
 
 ### 1. 准备服务器

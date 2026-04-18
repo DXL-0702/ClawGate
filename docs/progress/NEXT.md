@@ -1,7 +1,7 @@
 # 下一步开发计划 (NEXT)
 
 > 本文件记录当前阶段的**具体开发思路**，完整路线图请参阅 [README.md](../../README.md)。
-> 最后更新：v0.5 全部完成，v1.0 Phase 2 完成 + Phase 3 部分完成，进入 v0.6
+> 最后更新：v1.0 Phase 4 开始 + Issue 6 状态修正（2026-04-18）
 
 ---
 
@@ -111,7 +111,29 @@
 - ✅ 服务端：`cacheTtl >= 0` 校验，序列化仅 `> 0` 时写入（节省 JSON 体积）
 - ✅ 单元测试：`cache-key.test.ts` 4/4 通过
 
-### 当前阶段：v1.0 Phase 3 — 健康检查定时任务（待开始）
+## 当前阶段：v1.0 Phase 4 — 生态扩展（进行中）
+
+### 近期目标（执行顺序）
+
+1. ✅ **Node.js SDK 首版** — `@clawgate/sdk`（11 方法 / 17 测试通过 / 11.2 KB bundle，2026-04-18 完成）
+2. **Python SDK** — `sdk-python/`，以 Node.js SDK 为契约参考 ⬅ 当前
+3. **Watchtower 自动更新** — Docker 容器自动拉取最新镜像并重启
+4. **Issue 6 双模式认证深化** — 用户可选的分层安全机制（待 SDK 完成后）
+
+### Issue 6 状态修正（2026-04-18）
+
+**已完成（Bug 修复层）**：
+- ✅ 添加 `connect.failed` / `connect.error` 事件处理，输出清晰错误日志
+- ✅ challenge 响应失败后立即关闭连接，避免等待 5s 超时
+- ✅ 重连时重新尝试加载设备密钥（首次加载失败后可恢复）
+- ✅ `docker-compose.prod.yml` 默认启用 `~/.openclaw` volume 映射
+- ✅ `single-node.md` 添加功能依赖说明表
+
+**待深化（双模式认证设计）**：
+- ⚠️ Token-Only 握手存在竞态：盲等 500ms → 应改为监听 `connect.success`（需确认 Gateway 在 Token-Only 模式下是否发该事件）
+- ⚠️ `clawgate.yaml` 缺少 `auth_mode` 字段，用户无法声明式切换模式
+- ⚠️ `configReader` 未读取并透传 `auth_mode` 至 `GatewayClient`
+- ⚠️ 开发/生产分层安全（Token-Only vs Challenge-Response）未完整落地
 
 ### 技术债务处理
 - [ ] Cron 时区问题（支持 UTC/自定义时区）
@@ -133,62 +155,66 @@
 
 ---
 
-## 未来阶段：v1.0 Phase 1 — Rust 流量层完整实现
+## 已完成：v1.0 Phase 1 — Rust 熔断器 + Streaming + Stats Dashboard ✅
 
-### 目标
+**状态**：已完成（2026-04-18）
 
-完成四层智能路由的 Rust 实现，包括 HTTP/WS 代理、SSE 流转发、熔断器。
+### 交付摘要
 
-### 任务清单（延后至 v0.6 完成后）
+| Wave | 内容 | 关键文件 |
+|------|------|---------|
+| Wave 1 | Rust 熔断器 + 规则引擎 | `services/router-rust/src/circuit/mod.rs` |
+| Wave 2 | Streaming + Failover + 成本追踪 | `packages/server/src/routes/openai.ts` |
+| Wave 3 | Stats Dashboard | `packages/server/src/routes/stats.ts`, `StatsPage.tsx` |
+| 发布 | Docker 三镜像 + CI + 开箱即用 | `.github/workflows/docker.yml`, `docker-compose.prod.yml` |
 
-#### R1. HTTP/WS 反向代理
-- Axum 实现 HTTP 代理，透明转发到各 Provider
-- WebSocket 代理，支持 Gateway 长连接
-- 请求/响应转换中间件
-
-#### R2. SSE 流处理
-- 大模型流式响应透明转发
-- 背压控制，防止客户端消费慢导致内存溢出
-
-#### R3. 熔断器
-- Circuit Breaker 状态机（Closed/Open/Half-Open）
-- 基于错误率和延迟的自动熔断
-- 熔断时自动 fallback 到备用 Provider
-
-#### R4. L1 缓存增强
-- 请求归一化 + SHA-256 Hash
-- Redis 缓存 + TTL 管理
-- 缓存命中统计
+**外部依赖解决**：OpenClaw 可选模式（`CLAWGATE_REQUIRE_OPENCLAW=false`）允许无 OpenClaw 启动，智能路由核心能力始终可用。
 
 ---
 
-## v1.0 — 完整产品 + 团队部署（剩余阶段）
+## 历史：v1.0 Phase 1 原始计划（已归档）
 
-### Phase 1：核心功能补全
-- Rust 流量层完整实现（HTTP/WS 代理 + SSE 流转发 + 熔断器）
-- Provider Router 完整集成（intent-based 策略 + 成本预算告警）
-- DAG 条件分支 + 并行节点类型
-- 数据统计 Dashboard（路由准确率、成本节省率、模型用量）
+<details>
+<summary>点击查看原始 Phase 1 计划（已全部完成或调整）</summary>
 
-### Phase 2：团队部署架构（中央服务器 + 多成员接入）
-- 多实例注册 API（HTTP 注册 + 心跳保活）
-- 多实例连接池（多条 OpenClaw Gateway WebSocket）
-- 成员认证鉴权（JWT/API Key，admin/member 分级）
-- 团队 Docker Compose 一键部署
+#### R1. HTTP/WS 反向代理（架构调整）
+- ~~Axum 实现 HTTP 代理~~ → **SSE Streaming 在 Node.js 直出，Rust 仅作路由决策服务**
 
-### Phase 3：运维管理
-- 多实例健康面板（绿/黄/红状态、资源用量趋势）
-- 跨实例日志聚合与搜索
-- 异常告警（实例崩溃通知）
-- Remote SSH 模式（远程重启/升级团队成员 OpenClaw）
+#### R2. SSE 流处理（Node.js 实现）
+- ✅ 三 Provider streaming 完整实现（Anthropic SDK / OpenAI SDK / Ollama fetch）
 
-### Phase 4：生态扩展
-- ClawGate 自动更新（Docker + Watchtower）
-- `clawgate self-update` CLI 命令
-- SDK（Node.js + Python）
-- 插件扩展机制
+#### R3. 熔断器（Rust 实现）
+- ✅ Circuit Breaker 状态机（`services/router-rust/src/circuit/mod.rs`）
+- ✅ Node.js Failover 集成（`dispatchWithFailover`）
 
-### Phase 5：文档（统一编写）
-- 团队部署文档（Docker Compose 一键部署 + 网络配置 + 成员接入）
-- 个人部署文档（单机快速上手）
-- 开源文档（README + Contributing Guide）
+#### R4. Stats Dashboard
+- ✅ 路由分布、成本趋势、模型用量、熔断器状态四区块可视化
+</details>
+
+---
+
+## v1.0 — 完整产品 + 团队部署（状态汇总）
+
+| Phase | 状态 | 备注 |
+|-------|------|------|
+| Phase 1：核心功能补全 | ✅ 完成 | Rust 熔断器 + Streaming + Stats Dashboard（2026-04-18） |
+| Phase 2：团队部署架构 | ✅ 完成 | GatewayPool + 多实例注册 + 心跳负载（2026-04-17） |
+| Phase 3：运维管理 | ✅ 完成 | 健康面板 API + 告警系统 + 自动离线检测 |
+| Phase 4：生态扩展 | 🔄 进行中 | Node.js SDK ✅ → Python SDK（当前）→ Watchtower → Issue 6 双模式认证深化 |
+| Phase 5：文档 | 🔄 持续更新 | 个人/团队部署文档已发布，README 同步更新中 |
+
+### Phase 4：生态扩展（当前阶段）
+
+- [x] **Node.js SDK 首版（`@clawgate/sdk`）** — 11 方法、17/17 测试、11.2 KB bundle（2026-04-18）
+- [ ] **Python SDK** — 以 Node.js SDK 为契约参考 ⬅ 当前
+- [ ] **ClawGate 自动更新（Docker + Watchtower）**
+- [ ] **Issue 6 双模式认证深化** — Token-Only 握手修复 + auth_mode 配置透传 + 分层安全落地
+- [ ] `clawgate self-update` CLI 命令（裸机部署场景）
+- [ ] 插件扩展机制
+
+### Phase 5：文档（持续维护）
+
+- ✅ 团队部署文档（`docs/deployment/team.md`）
+- ✅ 个人部署文档（`docs/deployment/single-node.md`）
+- 🔄 README 中英双语同步（版本 v0.6 → v1.0）
+- [ ] Contributing Guide（开源贡献指引）

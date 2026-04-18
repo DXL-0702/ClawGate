@@ -19,6 +19,21 @@ pnpm dev
 
 ---
 
+## 功能依赖说明
+
+| 功能 | 需要 OpenClaw | 说明 |
+|------|--------------|------|
+| 智能路由（4层） | ❌ 不需要 | L1-L4 路由核心，完全独立运行 |
+| OpenAI 兼容 API | ❌ 不需要 | `/v1/chat/completions` 直接可用 |
+| Stats Dashboard | ❌ 不需要 | 路由统计、成本趋势完全可用 |
+| **Agent 管理** | ✅ **需要** | 需连接 OpenClaw Gateway |
+| **Session 监控** | ✅ **需要** | 需连接 OpenClaw Gateway |
+| **DAG 工作流** | ✅ **需要** | DAG Worker 通过 Gateway 执行 Agent 任务 |
+
+> **建议**：首次体验可跳过 OpenClaw，验证智能路由功能后再安装 OpenClaw 解锁完整能力。
+
+---
+
 ### 方式二：Docker 部署（推荐）
 
 仅需 Docker。
@@ -55,6 +70,21 @@ volumes:
 启动：`docker compose up -d`
 
 查看日志：`docker compose logs -f clawgate`
+
+**配置 OpenClaw（可选）**：
+
+若主机已安装 OpenClaw，下载 `.env.example` 并配置：
+
+```bash
+curl -O https://raw.githubusercontent.com/DXL-0702/ClawGate/main/.env.example
+cp .env.example .env
+
+# 编辑 .env，设置正确的 Gateway 地址（Linux 需用宿主机 IP）
+# GATEWAY_URL=ws://host.docker.internal:18789  # macOS/Windows
+# GATEWAY_URL=ws://192.168.1.x:18789           # Linux
+
+docker compose -f docker-compose.prod.yml up -d
+```
 
 ---
 

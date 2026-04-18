@@ -138,6 +138,41 @@ GET  /api/alerts               # 告警历史
 
 ---
 
+## 📦 Node.js SDK
+
+需要将 ClawGate 嵌入自有应用时，可使用官方 SDK `@clawgate/sdk`（零运行时依赖，bundle 11 KB）：
+
+```ts
+import { ClawGate } from '@clawgate/sdk';
+
+const gate = new ClawGate({ baseUrl: 'http://localhost:3000' });
+
+// 路由决策（不调用模型）
+const decision = await gate.route('帮我写一个排序算法');
+// { model: 'qwen2.5:7b', layer: 'L2', cacheHit: false, latencyMs: 12 }
+
+// OpenAI 兼容推理（流式）
+const stream = await gate.chat(
+  [{ role: 'user', content: '解释快排' }],
+  { stream: true },
+);
+for await (const chunk of stream) process.stdout.write(chunk.choices[0].delta.content ?? '');
+
+// 团队运维（需 apiKey）
+const ops = new ClawGate({ baseUrl: 'http://team:3000', apiKey: 'k-xxx' });
+const { alerts } = await ops.listAlerts({ acknowledged: false });
+const { runId } = await ops.triggerDag('dag-release');
+const detail = await ops.getDagRun(runId);
+```
+
+**已覆盖方法（11）**：个人场景 `route` / `stats` / `health` / `chat`；团队场景 `listInstances` / `getInstanceLoad` / `listAlerts` / `ackAlert` / `triggerDag` / `getDagRun` / `triggerWebhook`。
+
+**错误模型**：`ClawGateError` / `ClawGateAuthError`（401/403）/ `ClawGateBudgetError`（429，含 `spentUsd` + `limitUsd`）。
+
+Python SDK 将以此 SDK 为契约参考，稍后交付。
+
+---
+
 ## 📦 项目结构
 
 ```
@@ -146,8 +181,9 @@ ClawGate/
 │   ├── shared/          # 共享 TypeScript 类型
 │   ├── core/            # 配置、Gateway 客户端、路由客户端、数据库
 │   ├── server/          # Fastify API 服务（REST + WebSocket）
-│   ├── web/             # React 18 + shadcn/ui 控制台
-│   └── cli/             # Commander.js CLI
+│   ├── web/              # React 18 + shadcn/ui 控制台
+│   ├── sdk/              # @clawgate/sdk — 官方 Node.js SDK（零运行时依赖）
+│   └── cli/              # Commander.js CLI
 ├── services/
 │   ├── router-rust/     # L1 Hash 缓存 + 规则引擎（Axum/Tokio）
 │   └── intent-python/   # L2/L3/L4 意图服务（FastAPI + Qdrant）
@@ -167,7 +203,7 @@ ClawGate/
 | v0.3 | ✅ | 四层路由引擎、OpenAI 兼容 API，L1–L4 全链路已验证 |
 | v0.5 | ✅ | DAG 工作流（Wave 1-3）：多节点执行、Cron/Webhook 触发、变量传递、可视化编辑器 |
 | v0.6 | ✅ | DAG 进阶：执行历史、条件分支节点、延迟节点、输出缓存（Redis opt-in，50KB 保护） |
-| v1.0 | 🔜 | 团队部署（Phase 2 已完成）· 健康面板 + 自动离线检测（Phase 3 核心已完成）· SDK · 自动更新 |
+| v1.0 | 🔄 进行中 | 团队部署 + 健康面板 ✅（Phase 2/3 完成）· **Node.js SDK ✅**（Phase 4 首版）· Python SDK · Watchtower 自动更新 |
 
 **v0.6 Wave 4 交付结果（2026-04-17）**：
 - ✅ 15 场景集成测试套件（46/46 全部通过），覆盖条件+延迟组合场景

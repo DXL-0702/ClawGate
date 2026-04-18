@@ -4,13 +4,12 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join, normalize } from 'node:path';
 import type { Session } from '@clawgate/shared';
 
-// Ed25519 SPKI 前缀（用于从 SubjectPublicKeyInfo DER 格式提取原始公钥）
-const ED25519_SPKI_PREFIX = Buffer.from('3059301306072a8648ce3d020106082a8648ce3d030107034200', 'hex');
-
 interface GatewayClientOptions {
   url: string;
   token: string;
   reconnectIntervalMs?: number;
+  /** 认证模式：'token' | 'challenge' | 'auto'（默认 auto：有 device key 时用 challenge，否则 token） */
+  authMode?: 'token' | 'challenge' | 'auto';
 }
 
 interface RpcResponse {
@@ -57,6 +56,7 @@ export class GatewayClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldReconnect = false;
   private readonly reconnectIntervalMs: number;
+  private readonly authMode: 'token' | 'challenge' | 'auto';
   private eventListeners = new Map<string, Array<(data: unknown) => void>>();
   private privateKeyPem: string | null = null;
   private publicKeyPem: string | null = null;
@@ -64,6 +64,8 @@ export class GatewayClient {
 
   constructor(private readonly opts: GatewayClientOptions) {
     this.reconnectIntervalMs = opts.reconnectIntervalMs ?? 3000;
+    // 优先级：构造参数 > 环境变量 GATEWAY_AUTH_MODE > 默认值 'auto'
+    this.authMode = opts.authMode ?? (process.env['GATEWAY_AUTH_MODE'] as 'token' | 'challenge' | 'auto') ?? 'auto';
     const key = loadDeviceKey();
     if (key) {
       this.privateKeyPem = key.privateKeyPem;
@@ -72,12 +74,31 @@ export class GatewayClient {
     }
   }
 
+  /** 判断是否使用 Challenge-Response 模式 */
+  private useChallengeMode(): boolean {
+    if (this.authMode === 'challenge') return true;
+    if (this.authMode === 'token') return false;
+    // auto 模式：有 device key 且私钥存在时用 challenge
+    return !!this.privateKeyPem;
+  }
+
   async connect(): Promise<void> {
     this.shouldReconnect = true;
     return this._connect();
   }
 
   private _connect(): Promise<void> {
+    // 重连时重新尝试加载设备密钥（首次加载失败，文件后来可能出现）
+    if (!this.privateKeyPem) {
+      const key = loadDeviceKey();
+      if (key) {
+        this.privateKeyPem = key.privateKeyPem;
+        this.publicKeyPem = key.publicKeyPem;
+        this.deviceId = key.deviceId;
+        console.log('[GatewayClient] device key loaded on reconnect');
+      }
+    }
+
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(this.opts.url, {
         headers: { Authorization: `Bearer ${this.opts.token}` },
@@ -93,25 +114,46 @@ export class GatewayClient {
       // 防止 close 事件触发的 reject 产生 unhandled rejection
       challengePromise.catch(() => {});
 
+      // 标记是否已完成认证（解决无 device key 时 challenge 干扰）
+      let authCompleted = false;
+
       // 处理消息
       const handleMessage = (raw: Buffer | string) => {
         const rawStr = typeof raw === 'string' ? raw : raw.toString();
         const msg = JSON.parse(rawStr) as RpcResponse & { event?: string; data?: unknown; type?: string; payload?: ChallengePayload };
 
-        // challenge 事件（数据在 payload 字段）
+        // challenge 事件：有 device key 时响应，无则忽略
         if (msg.event === 'connect.challenge') {
+          if (!this.privateKeyPem) {
+            console.log('[GatewayClient] Ignoring challenge (no device key, token-only mode)');
+            return;
+          }
           const payload = msg.payload ?? (msg.data as ChallengePayload);
           this._handleChallenge(payload)
             .then(() => {
               console.log('[GatewayClient] challenge responded, waiting for connect.success...');
             })
-            .catch((err) => challengeReject?.(err));
+            .catch((err) => {
+              console.error('[GatewayClient] challenge handling failed:', err);
+              challengeReject?.(err instanceof Error ? err : new Error(String(err)));
+              ws.close();
+            });
           return;
         }
 
-        // connect.success 确认：认证完成，可放行
+        // connect.success：认证完成
         if (msg.event === 'connect.success') {
+          authCompleted = true;
           challengeResolve?.();
+          console.log('[GatewayClient] Gateway authentication successful');
+          return;
+        }
+
+        // connect.failed / connect.error：认证失败
+        if (msg.event === 'connect.failed' || msg.event === 'connect.error') {
+          const errorMsg = (msg.data as { message?: string })?.message ?? 'Authentication failed';
+          console.error(`[GatewayClient] ${msg.event}: ${errorMsg}`);
+          challengeReject?.(new Error(`${msg.event}: ${errorMsg}`));
           return;
         }
 
@@ -130,8 +172,11 @@ export class GatewayClient {
 
       ws.once('open', async () => {
         this.ws = ws;
-        // 等待 challenge-response → connect.success 完成（若有设备密钥）
-        if (this.privateKeyPem) {
+        const useChallenge = this.useChallengeMode();
+
+        if (useChallenge) {
+          // Challenge-Response 模式（生产环境推荐）
+          console.log('[GatewayClient] Using challenge-response mode');
           try {
             await Promise.race([
               challengePromise,
@@ -143,6 +188,20 @@ export class GatewayClient {
             reject(err instanceof Error ? err : new Error(String(err)));
             return;
           }
+        } else {
+          // Token-Only 模式（开发环境，快速接入）
+          console.log('[GatewayClient] Using token-only mode (set GATEWAY_AUTH_MODE=challenge to enable device auth)');
+          // 发送简单的 connect 消息（不包含 device 签名）
+          const connectMsg = {
+            type: 'connect',
+            minProtocol: 3,
+            maxProtocol: 3,
+            client: { id: 'clawgate', version: '0.5.0' },
+            auth: { token: this.opts.token },
+          };
+          this.ws.send(JSON.stringify(connectMsg));
+          // 等待短暂时间让 Gateway 处理
+          await new Promise(r => setTimeout(r, 500));
         }
         resolve();
       });
@@ -178,20 +237,11 @@ export class GatewayClient {
       throw new Error('Device key not loaded, cannot respond to challenge');
     }
 
-    // 从 PEM 提取原始公钥字节
-    const pemBody = this.publicKeyPem
-      .replace(/-----BEGIN PUBLIC KEY-----/, '')
-      .replace(/-----END PUBLIC KEY-----/, '')
-      .replace(/\s/g, '');
-    const publicKeyDer = Buffer.from(pemBody, 'base64');
-
-    // 提取 32 字节 Ed25519 原始公钥
-    const pubKeyObj = createPublicKey({
-      key: Buffer.concat([ED25519_SPKI_PREFIX, publicKeyDer]),
-      format: 'der',
-      type: 'spki',
-    });
-    const rawPublicKey = pubKeyObj.export({ format: 'der', type: 'spki' }).slice(ED25519_SPKI_PREFIX.length);
+    // 从 PEM 直接创建公钥对象（Node.js 自动解析 SPKI 格式）
+    const pubKeyObj = createPublicKey(this.publicKeyPem);
+    // 导出为 JWK 格式获取裸公钥（x 字段是 base64url 编码的 32 字节公钥）
+    const jwk = pubKeyObj.export({ format: 'jwk' });
+    const rawPublicKey = Buffer.from(jwk.x as string, 'base64url');
 
     // 构建签名 payload（严格符合 OpenClaw SDK buildDeviceAuthPayloadV3 格式）
     const scopes = 'sessions,agents,gateway';

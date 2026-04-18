@@ -36,6 +36,7 @@ graph TB
     subgraph "Routing Layer (Rust)"
         L1[L1 Cache<br/>Hash Match]
         Rules[Rule Engine]
+        Circuit[Circuit Breaker<br/>Provider Health]
     end
 
     subgraph "Intent Service (Python)"
@@ -63,11 +64,13 @@ graph TB
     Core --> Router
     Core --> Gateway
     Router --> L1
+    Router --> Circuit
     L1 --> L2
     L2 --> L3
     L3 --> Ollama
     L4 --> Qdrant
     L1 --> Redis
+    Circuit --> Redis
     Core --> SQLite
     Gateway --> OCGateway
     OCGateway --> Agents
