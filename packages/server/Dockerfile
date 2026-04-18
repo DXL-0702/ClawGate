@@ -11,27 +11,31 @@ RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 WORKDIR /repo
 
-# Copy workspace manifests first for better layer caching
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json turbo.json ./
+# 1. 根目录配置（tsconfig.base.json 被所有子包 extends，必须先复制）
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json turbo.json tsconfig.base.json ./
+
+# 2. 各包 manifest（供 pnpm install 解析 workspace 依赖图）
 COPY packages/shared/package.json  packages/shared/
 COPY packages/core/package.json    packages/core/
 COPY packages/server/package.json  packages/server/
 COPY packages/web/package.json     packages/web/
 COPY packages/cli/package.json     packages/cli/
 
+# 3. 安装所有依赖（含 native 编译：better-sqlite3 / msgpackr-extract / esbuild）
 RUN pnpm install --frozen-lockfile
 
-# Copy source and build
+# 4. 复制源码（整个目录已含各包的 tsconfig.json / src/）
 COPY packages/shared  packages/shared
 COPY packages/core    packages/core
 COPY packages/server  packages/server
 
+# 5. 按依赖顺序构建
 RUN pnpm --filter @clawgate/shared build && \
     pnpm --filter @clawgate/core   build && \
     pnpm --filter @clawgate/server build
 
-# Produce a self-contained deploy bundle with only server + prod deps
-RUN pnpm --filter @clawgate/server deploy --prod /deploy
+# 6. 生成自包含 deploy bundle（只保留 server + 生产依赖，排除 devDeps 和其他包源码）
+RUN pnpm --filter @clawgate/server deploy --prod --legacy /deploy
 
 # ---- Runtime stage ----
 FROM node:20-bookworm-slim AS runtime

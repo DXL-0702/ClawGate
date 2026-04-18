@@ -71,6 +71,8 @@ try {
   app.log.info('OpenClaw Gateway connected successfully');
 } catch (err) {
   const error = err instanceof Error ? err.message : String(err);
+  // 停止 GatewayClient 内部的重连循环，防止 unhandled rejection 崩溃进程
+  gateway.disconnect();
   if (requireOpenClaw) {
     app.log.error({ err: error }, 'OpenClaw Gateway required but unreachable — exiting');
     process.exit(1);

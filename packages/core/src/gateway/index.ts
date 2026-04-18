@@ -90,6 +90,8 @@ export class GatewayClient {
         challengeResolve = res;
         challengeReject = rej;
       });
+      // 防止 close 事件触发的 reject 产生 unhandled rejection
+      challengePromise.catch(() => {});
 
       // 处理消息
       const handleMessage = (raw: Buffer | string) => {
@@ -157,7 +159,10 @@ export class GatewayClient {
           res({ id, error: { message: 'Gateway disconnected' } });
         }
         this.pending.clear();
-        challengeReject?.(new Error('Gateway disconnected'));
+        // 仅当连接仍在等待 challenge 完成时才 reject（否则 Promise 已被消费）
+        const reject = challengeReject;
+        challengeReject = null;
+        try { reject?.(new Error('Gateway disconnected')); } catch { /* already settled */ }
         if (this.shouldReconnect) {
           this.reconnectTimer = setTimeout(() => {
             this._connect().catch(() => {});
