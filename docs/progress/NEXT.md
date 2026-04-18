@@ -1,7 +1,7 @@
 # 下一步开发计划 (NEXT)
 
 > 本文件记录当前阶段的**具体开发思路**，完整路线图请参阅 [README.md](../../README.md)。
-> 最后更新：进入 v1.0 Delivery Readiness（2026-04-18）
+> 最后更新：R1 完成（2026-04-18），进入 R2
 
 ---
 
@@ -20,7 +20,7 @@
 
 | 步骤 | 内容 | 状态 |
 |------|------|------|
-| R1 | **Web UI 入 Docker 镜像** — 改 `packages/server/Dockerfile`：builder 阶段 build web，runtime COPY `packages/web/dist/`，server 注册 `@fastify/static` serve `/`，SPA fallback 到 `index.html` | 🔜 |
+| R1 | **Web UI 入 Docker 镜像** — Dockerfile builder 阶段 build web，runtime COPY `packages/web/dist/` 至 `/app/public`；server 注册 `@fastify/static` serve `/` + SPA fallback（仅 GET + 非扩展名/`.html` 回退 index.html，真资源保持 404） | ✅ 2026-04-18 |
 | R2 | **Issue 6 双模式认证深化** — `clawgate.yaml` 增 `auth_mode` 字段；`configReader` 透传至 `GatewayClient`；Token-Only 模式握手监听 `connect.success` 替代 500ms 盲等 | 🔜 |
 | R3 | **团队部署 Docker Compose 模板** — 新增 `docker-compose.team.yml`：中央 ClawGate 全栈 + 文档说明 OpenClaw 实例如何通过 HTTP 注册 | 🔜 |
 

@@ -1,8 +1,10 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
+import staticPlugin from '@fastify/static';
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { join, dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import {
   configReader, GatewayClient, initDb, loadYamlConfig, generateDefaultConfig,
   connectRedis, disconnectRedis, disconnectBullMqRedis,
@@ -154,6 +156,52 @@ await app.register(memberRoutes, { prefix: '/api' });
 await app.register(healthOverviewRoutes, { prefix: '/api' });
 await app.register(alertRoutes, { prefix: '/api' });
 await app.register(statsRoutes, { prefix: '/api' });
+
+// ── Web UI 静态资源（生产 Docker 内置） ──────────────────────
+// 路径解析顺序：
+//   1. WEB_DIST 环境变量（Docker 镜像设为 /app/public）
+//   2. 默认裸机开发：相对 packages/server/dist/ 的 ../../web/dist
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const webDistPath = process.env['WEB_DIST']
+  ?? resolve(__dirname, '../../web/dist');
+
+if (existsSync(webDistPath)) {
+  await app.register(staticPlugin, {
+    root: webDistPath,
+    prefix: '/',
+    wildcard: false,
+    cacheControl: true,
+    maxAge: '7d',
+    setHeaders: (res, filePath) => {
+      // index.html 不缓存（每次拉取最新版）
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+      }
+    },
+  });
+
+  // SPA fallback：仅对导航类路径（无扩展名或 .html）回退 index.html
+  // 真实静态资源（.js/.css/.map/.png 等）缺失时保持 404，便于前端发现资源问题
+  app.setNotFoundHandler((req, reply) => {
+    const url = req.url;
+    const isApi = url.startsWith('/api') || url.startsWith('/v1') || url.startsWith('/ws');
+    if (req.method === 'GET' && !isApi) {
+      // 提取 pathname（去除 query string）后判断扩展名
+      const pathname = url.split('?')[0] ?? url;
+      const lastSegment = pathname.split('/').pop() ?? '';
+      const hasAssetExtension = lastSegment.includes('.') && !lastSegment.endsWith('.html');
+      if (!hasAssetExtension) {
+        return reply.type('text/html').sendFile('index.html');
+      }
+    }
+    return reply.status(404).send({ error: 'Not Found', path: url });
+  });
+
+  app.log.info(`Web UI served from ${webDistPath}`);
+} else {
+  app.log.warn(`Web dist not found at ${webDistPath} — running API-only`);
+}
 
 try {
   await app.listen({ port: 3000, host: '0.0.0.0' });

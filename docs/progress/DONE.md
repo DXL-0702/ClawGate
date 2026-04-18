@@ -512,3 +512,31 @@ POST /api/dags/:id/webhook?token=wrong
 - **`.env.example`** — 环境变量模板，含 Provider Keys、运行模式、熔断器调优参数
 
 ---
+
+## v1.0 Delivery Readiness — Phase R（进行中）
+
+### R1 ✅ Web UI 入 Docker 镜像（2026-04-18）
+
+**Dockerfile 改造（`packages/server/Dockerfile`）**：
+- Builder 阶段新增 `COPY packages/web packages/web` 并 `pnpm --filter @clawgate/web build`
+- Runtime 阶段 `COPY --from=builder /repo/packages/web/dist /app/public`
+- 环境变量 `WEB_DIST=/app/public` 注入，裸机开发自动回退 `../../web/dist`
+
+**Fastify 静态服务（`packages/server/src/index.ts`）**：
+- 注册 `@fastify/static`（v8.3.0，`wildcard: false` + `prefix: '/'`）
+- `index.html` 强制 `no-cache`，其余 assets `max-age=7d`
+- **精确化 SPA fallback**：`setNotFoundHandler` 仅对 GET + 无扩展名/`.html` 的路径回退 `index.html`；真实静态资源（`.js/.css/.png/.map/...`）保持 404，便于 QA 发现资源问题
+
+**端到端验证（Docker 镜像 + docker-compose.prod.yml）**：
+
+| 请求 | 预期 | 实际 | 结论 |
+|---|---|---|---|
+| `GET /` | 200 HTML | 200 · `text/html` · `max-age=604800` | ✅ |
+| `GET /api/health` | JSON | JSON（standalone 模式） | ✅ |
+| `GET /missing.js` | 404 JSON | 404 JSON | ✅ 白名单生效 |
+| `GET /dags`（SPA 深链） | 200 HTML | 200 · index.html | ✅ |
+| `GET /assets/index-*.js` | 200 | 200 · `accept-ranges: bytes` | ✅ |
+
+**已知限制**：`HEAD /spa-route` 不触发 fallback（仅 GET），因浏览器导航 100% 用 GET，影响可忽略。
+
+---

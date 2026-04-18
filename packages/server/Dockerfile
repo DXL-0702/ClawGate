@@ -28,11 +28,13 @@ RUN pnpm install --frozen-lockfile
 COPY packages/shared  packages/shared
 COPY packages/core    packages/core
 COPY packages/server  packages/server
+COPY packages/web     packages/web
 
-# 5. 按依赖顺序构建
+# 5. 按依赖顺序构建（含 web SPA）
 RUN pnpm --filter @clawgate/shared build && \
     pnpm --filter @clawgate/core   build && \
-    pnpm --filter @clawgate/server build
+    pnpm --filter @clawgate/server build && \
+    pnpm --filter @clawgate/web    build
 
 # 6. 生成自包含 deploy bundle（只保留 server + 生产依赖，排除 devDeps 和其他包源码）
 RUN pnpm --filter @clawgate/server deploy --prod --legacy /deploy
@@ -50,12 +52,16 @@ WORKDIR /app
 
 COPY --from=builder --chown=clawgate:clawgate /deploy /app
 
+# 复制 Web SPA 静态资源（由 Fastify @fastify/static serve）
+COPY --from=builder --chown=clawgate:clawgate /repo/packages/web/dist /app/public
+
 USER clawgate
 
 ENV NODE_ENV=production \
     ROUTER_URL=http://router:3001 \
     REDIS_URL=redis://redis:6379 \
     OLLAMA_URL=http://ollama:11434 \
+    WEB_DIST=/app/public \
     CLAWGATE_REQUIRE_OPENCLAW=false
 
 EXPOSE 3000
