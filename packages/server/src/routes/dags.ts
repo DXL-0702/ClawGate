@@ -337,6 +337,118 @@ export const dagRoutes: FastifyPluginAsync = async (app) => {
     return { runId, status: 'pending' };
   });
 
+  // GET /api/dags/:id/export — 导出标准 JSON（去掉运行时字段，含触发器配置）
+  app.get<{ Params: { id: string } }>('/dags/:id/export', async (req, reply) => {
+    const auth = await getAuthContext(req.headers);
+    const db = getDb();
+
+    const [dag] = await db
+      .select()
+      .from(schema.dags)
+      .where(eq(schema.dags.id, req.params.id));
+
+    if (!dag) return reply.status(404).send({ error: 'DAG not found' });
+    if (auth.mode === 'team' && dag.teamId !== auth.teamId) {
+      return reply.status(403).send({ error: 'Access denied' });
+    }
+
+    const exportData = {
+      // 版本标记，便于未来兼容
+      _clawgate_export_version: 1,
+      name: dag.name,
+      definition: JSON.parse(dag.definition) as DagDefinition,
+      trigger: dag.trigger,
+      cronExpression: dag.cronExpression ?? undefined,
+      cronTimezone: dag.cronTimezone ?? undefined,
+      enabled: !!dag.enabled,
+      // webhookToken 不导出（导入时重新生成，避免 token 泄漏）
+    };
+
+    // 触发浏览器下载：设置 Content-Disposition
+    const filename = `${dag.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_${dag.id.slice(0, 8)}.json`;
+    reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+    reply.header('Content-Type', 'application/json');
+    return reply.send(JSON.stringify(exportData, null, 2));
+  });
+
+  // POST /api/dags/import — 导入 DAG（校验格式，新建不覆盖）
+  app.post<{ Body: unknown }>('/dags/import', async (req, reply) => {
+    try {
+      const auth = await getAuthContext(req.headers);
+      const body = req.body as Record<string, unknown>;
+
+      // 基础格式校验
+      if (!body || typeof body !== 'object') {
+        return reply.status(400).send({ error: 'Invalid import format: body must be a JSON object' });
+      }
+      if (body['_clawgate_export_version'] !== 1) {
+        return reply.status(400).send({ error: 'Invalid import format: missing or unsupported _clawgate_export_version' });
+      }
+
+      const name = body['name'];
+      const definition = body['definition'] as DagDefinition | undefined;
+      const trigger = (body['trigger'] ?? 'manual') as 'manual' | 'cron' | 'webhook';
+      const cronExpression = body['cronExpression'] as string | undefined;
+      const cronTimezone = body['cronTimezone'] as string | undefined;
+      const enabled = body['enabled'] !== false; // 默认 true
+
+      if (typeof name !== 'string' || !name.trim()) {
+        return reply.status(400).send({ error: 'Invalid import format: name is required' });
+      }
+      if (!definition || !Array.isArray(definition.nodes) || definition.nodes.length === 0) {
+        return reply.status(400).send({ error: 'Invalid import format: definition.nodes must be a non-empty array' });
+      }
+      if (!['manual', 'cron', 'webhook'].includes(trigger)) {
+        return reply.status(400).send({ error: 'Invalid import format: trigger must be manual, cron or webhook' });
+      }
+      if (trigger === 'cron' && cronExpression && !isValidCron(cronExpression)) {
+        return reply.status(400).send({ error: 'Invalid cron expression in import' });
+      }
+
+      const db = getDb();
+      const now = new Date().toISOString();
+      const id = crypto.randomUUID();
+      const webhookToken = trigger === 'webhook' ? crypto.randomUUID() : null;
+
+      await db.insert(schema.dags).values({
+        id,
+        name: name.trim(),
+        teamId: auth.teamId,
+        definition: JSON.stringify(definition),
+        trigger,
+        cronExpression: cronExpression || null,
+        cronTimezone: cronTimezone || null,
+        enabled,
+        webhookToken,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      if (trigger === 'cron' && enabled && cronExpression) {
+        try {
+          await addDagCronJob(id, cronExpression, definition, cronTimezone);
+        } catch (err) {
+          // 导入成功但 cron 注册失败不阻塞（启动时会重试）
+          console.warn('[DAG Import] Cron registration failed, will retry on next startup:', err);
+        }
+      }
+
+      return reply.status(201).send({
+        id,
+        name: name.trim(),
+        trigger,
+        cronExpression,
+        cronTimezone,
+        enabled,
+        webhookToken,
+        createdAt: now,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      return reply.status(500).send({ error: `Import failed: ${msg}` });
+    }
+  });
+
   // POST /api/dags/:id/webhook — Webhook 触发（外部调用，无需认证）
   // Body 可选 JSON，将通过 {{webhookPayload[.path]}} 在节点 prompt 中引用
   app.post<{ Params: { id: string }; Querystring: { token: string }; Body: unknown }>(

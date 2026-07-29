@@ -223,9 +223,9 @@ export class OpenClawLifecycle {
   }
 
   /**
-   * 检查是否有可用更新
+   * 检查是否有可用更新（跨平台）
    *
-   * 通过比较当前版本与最新 release
+   * 直接查 npm registry，不依赖本机包管理器，macOS/Linux/Windows 都可靠。
    */
   async checkUpdate(): Promise<{
     hasUpdate: boolean;
@@ -235,22 +235,22 @@ export class OpenClawLifecycle {
     const currentVersion = await this.getVersion();
 
     try {
-      // 根据平台检查最新版本
-      const platform = process.platform;
-      let latestVersion: string | null = null;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch('https://registry.npmjs.org/openclaw/latest', {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
 
-      if (platform === 'darwin') {
-        // macOS: 检查 brew
-        const { stdout } = await execFileAsync('brew', ['info', '--json', 'openclaw'], {
-          timeout: 10000,
-        });
-        const info = JSON.parse(stdout);
-        latestVersion = info[0]?.versions?.stable ?? null;
+      if (!res.ok) {
+        return { hasUpdate: false, currentVersion, latestVersion: null };
       }
-      // TODO: Linux/Windows 版本检查
+
+      const data = await res.json() as { version?: string };
+      const latestVersion = data.version ?? null;
 
       return {
-        hasUpdate: !!latestVersion && latestVersion !== currentVersion,
+        hasUpdate: !!latestVersion && !!currentVersion && latestVersion !== currentVersion,
         currentVersion,
         latestVersion,
       };

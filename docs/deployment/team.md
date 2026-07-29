@@ -1,228 +1,206 @@
-# 团队部署
+# 团队模式运行基线
 
-中央服务器 + 多成员 OpenClaw 实例架构。
+团队模式的目标是让一台中央 ClawGate 服务发现并调度多个成员机器上的 OpenClaw Gateway。当前代码已经有团队、成员、实例、心跳、负载、告警和跨实例 DAG 的 API 骨架，也有对应 Web 页面；但认证隔离、Gateway 兼容、心跳代理和数据持久化尚未闭环。
 
+**结论：当前团队模式只适合隔离网络中的开发验证，不适合公网或生产部署。**
+
+## 1. 实际拓扑
+
+```text
+                         HTTP REST / Web UI
+管理员与成员  -------------------------------------->  ClawGate Server :3000
+                                                           |
+                                                           | HTTP
+                                      +--------------------+------------------+
+                                      |                    |                  |
+                                      v                    v                  v
+                                Router :3001          Intent :8000      Redis / SQLite
+                                                           |
+                                                   Qdrant / Ollama
+
+ClawGate Server  --------------------- WebSocket ---------------------> 成员 OpenClaw Gateway
+                         中央服务主动连接成员登记的 gatewayUrl
 ```
-┌─────────────────────────────┐
-│      中央服务器              │
-│  ClawGate + Redis + Qdrant  │
-│      http://clawgate.io     │
-└─────────────┬───────────────┘
-              │
-    ┌─────────┼─────────┐
-    ▼         ▼         ▼
- 成员A      成员B      成员C
- MacBook   Linux     远程服务器
-```
 
----
+关键边界：
 
-## 分层安全架构（推荐）
+- 成员实例不是通过长连接接入 ClawGate；它先用 HTTP 注册 `gatewayUrl` 与 token，中央 Server 再主动建立 WebSocket。
+- 仓库没有成员侧 daemon 或 CLI 心跳进程。注册响应要求每 10 秒心跳，但当前必须由外部程序自行上报。
+- Gateway token 当前明文写入 SQLite。
+- 跨进程协议是 HTTP REST；Proto 没有接入。
 
-ClawGate 支持两种 Gateway 认证模式，适应不同安全需求：
+## 2. 已实现能力与成熟度
 
-| 模式 | 适用场景 | 安全性 | 配置方式 |
-|------|---------|--------|---------|
-| **Token-Only** | 开发环境、内网团队 | 中 | `GATEWAY_AUTH_MODE=token` |
-| **Challenge-Response** | 生产环境、公网暴露 | 高 | `GATEWAY_AUTH_MODE=challenge` |
+| 能力域 | 当前实现 | 已知限制 |
+|---|---|---|
+| 团队与成员 | 创建团队、添加/列出/删除成员、API Key 鉴权 | Key 用 `Math.random()` 生成并明文存储；无轮换、过期和撤销模型 |
+| 实例 | 注册、重注册、心跳、列表、详情、负载、删除 | 心跳不验证实例归属；按 environment 过滤会覆盖团队条件 |
+| GatewayPool | 按在线状态和负载选择实例，复用进程内连接 | 不是 LRU；断线检查、并发建连和跨团队强制选择存在缺口 |
+| DAG | manual/cron/webhook、拓扑批次、条件、延迟、团队实例选择 | 当前 OpenClaw RPC/event contract 不兼容，真实 Agent 节点 E2E 未通过 |
+| 健康与告警 | 每分钟健康检查、offline 告警、确认 API | 只有 offline 告警真正产生；趋势使用最新快照，不是历史时序数据 |
+| Web UI | 团队、实例、DAG、健康和告警页面 | 部分实时事件未认证、未按团队分区 |
 
-### 模式对比
+## 3. 为什么不能直接公网部署
 
-**Token-Only（开发首选）**
-- 仅使用 Bearer Token 认证
-- 部署简单，无需设备密钥
-- 适合本地开发、小团队内网
+当前存在以下高优先级风险：
 
-**Challenge-Response（生产推荐）**
-- Ed25519 设备签名 + Token 双因子
-- 每个设备独立密钥，可单独吊销
-- 适合公网中央服务器、企业级部署
+1. 未提供 `X-API-Key` 时，通用鉴权会进入个人模式；部分 DAG、Run 和实例详情路由只在团队模式检查归属，知道资源 UUID 即可能绕过团队隔离。
+2. Server 固定监听 `0.0.0.0:3000`，CORS 接受任意 Origin，路由、OpenAI、Agent、Session、Stats 和 `/ws/events` 等接口没有统一认证。
+3. `POST /api/instances/:id/heartbeat` 没有验证调用者与目标实例是否属于同一团队。
+4. `GET /api/instances?environment=...` 的第二次 Drizzle `.where()` 会覆盖原团队条件，可能返回其他团队实例。
+5. OpenClaw restart/upgrade 比较 `X-Admin-Token` 与 `CLAWGATE_ADMIN_TOKEN`；两者都未设置时存在 `undefined === undefined` 放行路径。团队 Compose 配置的 `ADMIN_API_KEY` 完全未被该代码读取。
+6. 成员 API Key 和 Gateway token 均以明文存储；API Key 没有可靠随机源、哈希、轮换与撤销机制。
+7. `/ws/events` 当前是全局广播，没有认证、团队分区、背压或稳定的异常隔离。
+8. 当前 Gateway adapter 与 OpenClaw 2026.4.14 的 `payload`、`message` 和事件完成语义不兼容。
 
-### 快速选择
+反向代理和 VPN 可以缩小暴露面，但不能修复资源归属判断和凭据存储问题。
+
+## 4. 中央服务的当前启动方式
+
+团队 Compose 可以作为集成环境模板：
 
 ```bash
-# 开发/测试环境（简单快速）
-GATEWAY_AUTH_MODE=token
-
-# 生产/公网环境（安全优先）
-GATEWAY_AUTH_MODE=challenge
-# 需配合 device.json 设备注册（见下文"设备密钥管理"）
-
-# 自动检测（默认）
-# 有 device.json → challenge，无 → token
-GATEWAY_AUTH_MODE=auto
-```
-
----
-
-## 中央服务器部署
-
-### 1. 准备服务器
-
-要求：
-- 2 vCPU / 4GB RAM / 20GB 磁盘
-- 公网 IP 或内网可访问
-- Docker 已安装
-
-### 2. 部署
-
-```bash
-# 下载团队 Compose 文件和环境变量模板
-curl -O https://raw.githubusercontent.com/DXL-0702/ClawGate/main/docker-compose.team.yml
-curl -O https://raw.githubusercontent.com/DXL-0702/ClawGate/main/.env.example
-
-# 编辑 .env，必填项：
-#   ANTHROPIC_API_KEY 或 OPENAI_API_KEY（至少一个）
-#   ADMIN_API_KEY=<openssl rand -hex 32 生成的随机值>
-cp .env.example .env && vi .env
-
-# 启动（首次约 10 分钟，需下载 Ollama 模型）
+docker compose -f docker-compose.team.yml config --quiet
 docker compose -f docker-compose.team.yml up -d
-
-# 验证
-curl http://localhost:3000/api/health
+docker compose -f docker-compose.team.yml ps
 ```
 
-> **说明**：`docker-compose.team.yml` 与 `docker-compose.prod.yml` 的区别：
-> - 不挂载 `~/.openclaw`（团队模式下 OpenClaw 实例由成员本地运行，通过 HTTP 注册）
-> - `CLAWGATE_REQUIRE_OPENCLAW=false`（中央服务器无需本地 OpenClaw）
-> - 容器名加 `-team-` 前缀，可与单节点模式共存于同一宿主机
-> - 支持 `CLAWGATE_PORT` 环境变量自定义外部端口（默认 3000）
+本轮只验证了 Compose 配置可以解析，没有验证远程 `latest` 镜像、全栈冷启动或真实成员 Gateway。
 
----
+### Compose 变量实情
 
-## 团队接入流程
+| 变量 | 当前作用 |
+|---|---|
+| `CLAWGATE_PORT` | 只控制宿主机端口映射，容器内 Server 固定 3000 |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Server Provider 使用 |
+| `SIMPLE_MODEL` / `COMPLEX_MODEL` | Router 与 Intent 使用 |
+| `ADMIN_API_KEY` | Compose 会传入，但 Server 不读取 |
+| `CLAWGATE_ADMIN_TOKEN` | 生命周期路由实际读取，但团队 Compose 目前未传入 |
+| `CLAWGATE_DB_PATH` | Server/Core 当前不读取 |
 
-### 1. 创建团队（管理员）
+此外，Compose 的 `/app/data` volume 未接入实际 SQLite 路径；干净数据库的 `cron_timezone` 建表遗漏已通过临时空库复现。不要按当前 volume 声明设计备份策略。
 
-```bash
-curl -X POST http://clawgate-server:3000/api/teams \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Engineering","slug":"eng","ownerEmail":"lead@company.com"}'
-```
+## 5. API 联调流程
 
-保存返回的 `apiKey`（仅显示一次）。
+以下命令仅用于隔离开发环境，并描述当前 API 合约，不代表生产安全方案。
 
-### 2. 添加成员
-
-```bash
-curl -X POST http://clawgate-server:3000/api/members \
-  -H "X-API-Key: ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"dev@company.com","name":"Developer","role":"member"}'
-```
-
-### 3. 成员注册实例
-
-成员本地执行：
+### 5.1 创建团队
 
 ```bash
-# 确认 OpenClaw 运行
-openclaw gateway
-
-# 注册到中央服务器
-curl -X POST http://clawgate-server:3000/api/instances/register \
-  -H "X-API-Key: MEMBER_API_KEY" \
-  -H "Content-Type: application/json" \
+curl -X POST http://127.0.0.1:3000/api/teams \
+  -H 'Content-Type: application/json' \
   -d '{
-    "name": "MacBook-Pro-1",
-    "gatewayUrl": "ws://$(hostname -I | cut -d" " -f1):18789",
-    "gatewayToken": "openclaw-token",
-    "environment": "production",
-    "tags": ["ml-team"]
+    "name": "Engineering",
+    "slug": "engineering",
+    "ownerEmail": "lead@example.com",
+    "ownerName": "Lead"
   }'
 ```
 
-**注意**：`gatewayUrl` 需使用内网 IP（非 127.0.0.1），确保中央服务器可达。
+响应中的 `owner.apiKey` 是后续管理 API 使用的团队成员 Key。当前实现还会通过 `/api/members/me` 再次返回该 Key，因此“仅显示一次”的响应文案与实际行为不一致。
 
----
-
-## 验证
-
-### 管理员查看团队状态
+### 5.2 添加成员
 
 ```bash
-# 实例总览
-curl http://clawgate-server:3000/api/health/overview \
-  -H "X-API-Key: ADMIN_API_KEY"
-
-# 告警列表
-curl http://clawgate-server:3000/api/alerts \
-  -H "X-API-Key: ADMIN_API_KEY"
-```
-
-### 创建 DAG 并调度
-
-```bash
-# 创建 DAG
-curl -X POST http://clawgate-server:3000/api/dags \
-  -H "X-API-Key: MEMBER_API_KEY" \
-  -H "Content-Type: application/json" \
+curl -X POST http://127.0.0.1:3000/api/members \
+  -H 'X-API-Key: OWNER_API_KEY' \
+  -H 'Content-Type: application/json' \
   -d '{
-    "name": "Data Pipeline",
-    "definition": {"nodes":[{"id":"n1","type":"agent","agentId":"analyzer","prompt":"Analyze data"}]},
-    "trigger": "manual"
+    "email": "dev@example.com",
+    "name": "Developer",
+    "role": "member"
   }'
-
-# 触发执行（自动选择 production 实例）
-curl -X POST http://clawgate-server:3000/api/dags/{dag-id}/run \
-  -H "X-API-Key: MEMBER_API_KEY"
 ```
 
----
+保存响应中的 `member.apiKey`。
 
-## 网络配置
+### 5.3 注册成员 Gateway
 
-### 场景一：内网部署（推荐）
-
-所有成员与服务器在同一内网：
-- 成员 `gatewayUrl`: `ws://192.168.x.x:18789`
-- 服务器通过内网 IP 连接
-
-### 场景二：公网部署
-
-成员远程接入：
-- 成员 OpenClaw 需暴露公网端口（或使用 Tailscale/WireGuard）
-- 或使用反向代理 + VPN
-
----
-
-## 运维
-
-### 健康检查
-
-系统自动每分钟检查：
-- 无心跳 20s → 标记 offline
-- 离线 30min → 告警
-
-### 备份
+中央 Server 必须能够主动访问 `gatewayUrl`。不要使用只能从成员本机访问的 `127.0.0.1`。
 
 ```bash
-# 备份数据库
-docker cp clawgate:/data/clawgate.db ./backup.db
-
-# 或定期任务
-crontab -e
-0 2 * * * docker cp clawgate:/data/clawgate.db /backups/clawgate-$(date +\%Y\%m\%d).db
+curl -X POST http://127.0.0.1:3000/api/instances/register \
+  -H 'X-API-Key: MEMBER_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "dev-machine-01",
+    "gatewayUrl": "ws://10.0.0.21:18789",
+    "gatewayToken": "development-token",
+    "environment": "development",
+    "tags": ["workflow-lab"]
+  }'
 ```
 
-### 监控端点
+响应会返回 `instanceId` 和 `heartbeatIntervalSec: 10`。
 
-| 端点 | 用途 |
-|------|------|
-| `GET /api/health` | 服务健康 |
-| `GET /api/health/overview` | 实例统计 |
-| `GET /api/alerts` | 未确认告警 |
+### 5.4 上报心跳
 
----
+```bash
+curl -X POST http://127.0.0.1:3000/api/instances/INSTANCE_ID/heartbeat \
+  -H 'X-API-Key: MEMBER_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "version": "2026.4.14",
+    "platform": "darwin-arm64",
+    "activeSessions": 0,
+    "queuedTasks": 0,
+    "cpuUsage": 5,
+    "memoryUsage": 512,
+    "gatewayHealthy": true
+  }'
+```
 
-## 限制
+负载写入 Redis，TTL 为 20 秒。仓库没有自动上报程序；停止心跳后实例会失去负载快照，并在健康检查中被标记为离线。
 
-当前版本（v1.0）：
-- SQLite 单文件 → 适合 < 50 实例
-- 无内置用户界面 → 使用 CLI 或自建前端
-- DAG 单节点执行 → 多节点（拓扑/并行）规划中
+### 5.5 查询团队状态
 
-规模化建议：
-- > 50 实例：迁移至 PostgreSQL
-- > 100 成员：拆分多团队部署
+```bash
+curl http://127.0.0.1:3000/api/instances \
+  -H 'X-API-Key: MEMBER_API_KEY'
+
+curl http://127.0.0.1:3000/api/health/overview \
+  -H 'X-API-Key: MEMBER_API_KEY'
+
+curl http://127.0.0.1:3000/api/alerts \
+  -H 'X-API-Key: MEMBER_API_KEY'
+```
+
+不要使用 `environment` 查询参数评估租户隔离，相关条件覆盖问题尚未修复。
+
+## 6. DAG 团队调度边界
+
+团队 Key 可以创建与触发 DAG；Worker 会通过 GatewayPool 选择团队实例。DAG 的拓扑、变量替换、并行批次、条件节点和延迟节点已有 Core 自动化测试，但真实团队执行仍同时受以下问题阻塞：
+
+- Gateway RPC 响应按 `result` 解析，而当前 OpenClaw 使用 `payload`。
+- `sessions.send` 发送 `content`，当前 OpenClaw 要求 `message`。
+- 执行器等待不存在的 `session.end`，且事件监听注册晚于发送动作。
+- Cron Worker 创建的 Run 没有稳定写入团队归属。
+- 强制指定实例时，GatewayPool 没有验证该实例属于请求团队。
+
+因此不要把“Run 已进入 BullMQ”解释为“任务已在成员 Agent 上成功执行”。
+
+## 7. 数据与运维现状
+
+| 领域 | 当前状态 |
+|---|---|
+| SQLite 备份 | 容器路径未形成稳定契约，暂不提供正式备份命令 |
+| Redis 持久化 | Compose 开启 AOF，但热数据到 SQLite 的归档 Worker 未由 Server 启动 |
+| 告警 | 健康 Worker只创建 offline 告警，无通知 Webhook |
+| 趋势 | 读取 TTL 20 秒的最新负载，不能形成真实 1 小时时序 |
+| 日志与审计 | 没有成员操作审计或管理员安全审计 |
+| 凭据 | 无加密、哈希、轮换和撤销闭环 |
+
+## 8. 生产化验收条件
+
+团队部署至少需要满足以下条件后，才能升级为生产部署文档：
+
+1. 统一认证中间件，所有资源查询和变更都强制校验 `teamId`、`memberId` 与角色。
+2. 使用密码学安全随机源生成 Key，只保存哈希，并实现轮换、撤销和审计。
+3. 加密保存 Gateway token，建立成员侧注册与心跳 agent。
+4. 修复 OpenClaw 当前协议并完成单实例、跨实例、断线恢复的真实 E2E。
+5. 修复干净数据库迁移、明确 `CLAWGATE_DB_PATH`，完成备份恢复演练。
+6. 启动并重构 Redis 归档为可恢复的 at-least-once 流程。
+7. 为 WebSocket 加认证、团队分区、背压和 `wss://` 支持。
+8. 增加 Server 路由、认证、Docker、Python 和跨服务集成测试，再设置可执行的 CI 门禁。
+
+修复顺序见 `docs/progress/NEXT.md`。

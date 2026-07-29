@@ -1,7 +1,7 @@
 # ClawGate 开发 / 源码构建版
 #
 # 从本地源码构建 ClawGate 三个服务，用于开发调试。
-# 生产环境推荐使用 docker-compose.prod.yml（拉取官方镜像，启动更快）。
+# docker-compose.prod.yml 使用发布镜像，但同样尚未完成生产验收。
 #
 # 启动：docker compose up -d --build
 # 停止：docker compose down
@@ -103,6 +103,8 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     volumes:
+      # Core 当前不读取 CLAWGATE_DB_PATH，/app/data 尚未形成 SQLite
+      # 的有效持久化契约；详见 docs/deployment/single-node.md。
       - clawgate_data:/app/data
 
 volumes:

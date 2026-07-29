@@ -1,4 +1,4 @@
-# ClawGate 团队部署 — 中央服务器模式
+# ClawGate 团队模式集成拓扑（当前不适合公网或生产部署）
 #
 # 架构：
 #   - 一台中央服务器运行本文件中的所有服务
@@ -7,13 +7,14 @@
 #
 # 使用方式：
 #   curl -O https://raw.githubusercontent.com/DXL-0702/ClawGate/main/docker-compose.team.yml
-#   cp .env.example .env          # 编辑 .env，填入 API Keys 和 ADMIN_API_KEY
+#   cp .env.example .env          # 编辑 .env，填入 Provider API Keys
 #   docker compose -f docker-compose.team.yml up -d
 #
 # 访问：http://<SERVER_IP>:3000
 # API 文档：http://<SERVER_IP>:3000/api/health
 #
-# 成员接入：参考 docs/deployment/team.md「团队接入流程」章节
+# 当前认证隔离、凭据存储、心跳代理和 Gateway E2E 尚未闭环。
+# 成员接入与风险边界见 docs/deployment/team.md。
 
 services:
   # ── 基础设施 ────────────────────────────────────────────────
@@ -135,10 +136,13 @@ services:
       # Provider API Keys（至少配置一个）
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      # 团队管理员 API Key（用于创建团队/成员/查看告警）
-      # 建议：生成强随机值，如 openssl rand -hex 32
+      # 兼容占位：当前 Server 不读取 ADMIN_API_KEY。团队/成员接口使用
+      # 数据库中的 X-API-Key；生命周期接口读取 CLAWGATE_ADMIN_TOKEN，
+      # 但本 Compose 尚未转发该变量。
       - ADMIN_API_KEY=${ADMIN_API_KEY:-}
     volumes:
+      # 注意：Core 当前不读取 CLAWGATE_DB_PATH，/app/data 尚未形成
+      # SQLite 的有效持久化契约。
       - clawgate_data:/app/data
       # 团队模式不挂载 ~/.openclaw，成员实例通过 HTTP 心跳注册
     healthcheck:

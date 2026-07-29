@@ -6,7 +6,9 @@ const subscribers = new Set<WebSocket>();
 
 export function broadcastEvent(event: Record<string, unknown>): void {
   const payload = JSON.stringify(event);
-  for (const ws of subscribers) {
+  // 先快照再迭代，避免在 for-of 中修改 Set 导致漏发
+  const snapshot = [...subscribers];
+  for (const ws of snapshot) {
     if (ws.readyState === 1) { // OPEN
       ws.send(payload);
     } else {
